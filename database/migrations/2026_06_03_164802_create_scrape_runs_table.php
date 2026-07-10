@@ -8,16 +8,12 @@ return new class extends Migration
 {
     public function up(): void
     {
-        Schema::create('scrape_runs', function (Blueprint $table) {
-            $table->id();
-            $table->string('strategy');
-            $table->enum('status', ['pending', 'running', 'completed', 'failed']);
-            $table->json('params');
-            $table->integer('jobs_total')->default(0);
-            $table->integer('jobs_done')->default(0);
-            $table->integer('jobs_failed')->default(0);
-            $table->timestamp('started_at')->nullable();
-            $table->timestamp('finished_at')->nullable();
+        Schema::table('scrape_runs', function (Blueprint $table) {
+            $table->string('status')->default('pending')->change();
+            $table->string('external_run_id')->nullable()->after('status');
+            $table->json('params')->nullable();
+            $table->json('error_message')->nullable();
+            $table->timestamp('completed_at')->nullable();
         });
     }
 
