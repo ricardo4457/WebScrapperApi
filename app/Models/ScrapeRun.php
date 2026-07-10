@@ -1,9 +1,10 @@
 <?php
+// app/Models/ScrapeRun.php
 
 namespace App\Models;
 
 use Illuminate\Database\Eloquent\Model;
-use Illuminate\Support\Str;
+use Illuminate\Database\Eloquent\Relations\HasMany;
 
 class ScrapeRun extends Model
 {
@@ -11,16 +12,12 @@ class ScrapeRun extends Model
 
     protected $casts = [
         'params' => 'array',
-        'error_message' => 'array',
-        'completed_at' => 'datetime',
+        'started_at' => 'datetime',
+        'finished_at' => 'datetime',
     ];
 
-    protected static function booted()
+    public function jobs(): HasMany
     {
-        static::creating(function ($scrapeRun) {
-            if (empty($scrapeRun->token)) {
-                $scrapeRun->token = Str::random(48);
-            }
-        });
+        return $this->hasMany(ScrapeRunJob::class);
     }
 }
