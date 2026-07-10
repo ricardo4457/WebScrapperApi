@@ -8,9 +8,10 @@ return new class extends Migration
 {
     public function up(): void
     {
-        Schema::table('scrape_runs', function (Blueprint $table) {
-            $table->string('token', 64)->unique()->nullable()->after('id');
-            $table->string('status')->default('pending')->change();
+        Schema::create('scrape_runs', function (Blueprint $table) {
+            $table->id();
+            $table->string('token', 64)->unique()->nullable();
+            $table->string('status')->default('pending');
             $table->string('external_run_id')->nullable()->after('status');
             $table->json('params')->nullable();
             $table->json('error_message')->nullable();
