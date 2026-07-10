@@ -18,6 +18,11 @@ return [
         'key' => env('POSTMARK_API_KEY'),
     ],
 
+    'node_scraper' => [
+    'url' => env('NODE_SCRAPER_URL', 'http://localhost:3000'),
+    'api_key' => env('NODE_SCRAPER_API_KEY'),
+],
+
     'resend' => [
         'key' => env('RESEND_API_KEY'),
     ],
