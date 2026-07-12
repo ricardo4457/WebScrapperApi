@@ -10,17 +10,26 @@ return new class extends Migration
     {
         Schema::create('scrape_runs', function (Blueprint $table) {
             $table->id();
-            $table->string('token', 64)->unique()->nullable();
+
+            $table->string('token', 64)->unique();
+
             $table->enum('status', [
                 'pending',
                 'running',
                 'completed',
                 'failed'
             ])->default('pending');
-            $table->string('external_run_id')->nullable()->after('status');
+
+            $table->string('external_run_id')->nullable();
+
             $table->json('params')->nullable();
-            $table->json('error_message')->nullable();
+
+            $table->text('error_message')->nullable();
+
+            $table->timestamp('started_at')->nullable();
             $table->timestamp('completed_at')->nullable();
+
+            $table->timestamps();
         });
     }
 
