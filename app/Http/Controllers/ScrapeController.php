@@ -10,6 +10,7 @@ use App\Services\ScrapeRunService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Log;
+use Throwable;
 
 class ScrapeController extends Controller
 {
@@ -17,13 +18,14 @@ class ScrapeController extends Controller
         private ScrapeRunService $runs,
         private ScrapeJobService $jobs,
         private ScrapeCallbackService $callbacks,
-    ) {
-    }
+    ) {}
 
+    /**
+     * Trigger a new scrape run and dispatch it to the Node service.
+     */
     public function runScrape(StartScrapeRequest $request): JsonResponse
     {
         $validated = $request->validated();
-
         $run = $this->runs->create($validated);
 
         try {
@@ -35,13 +37,12 @@ class ScrapeController extends Controller
                     config('services.node_scraper.url') . '/scrape/run',
                     [
                         ...$validated,
-                        'callback_url' => route('scrape.callback'),
-                        'run_token' => $run->token,
+                        'callback_url' => route('book-scraper.callback'),
+                        'run_token'    => $run->token,
                     ]
                 );
 
             if ($response->failed()) {
-
                 Log::error('Node scraper returned an error.', [
                     'body' => $response->body(),
                 ]);
@@ -55,24 +56,19 @@ class ScrapeController extends Controller
             }
 
             $body = $response->json();
-
             $jobTokens = $body['job_tokens'] ?? [];
 
             $this->jobs->createJobs($run, $jobTokens);
 
-            $this->runs->start(
-                $run,
-                $body['jobs_total'] ?? count($jobTokens)
-            );
+            $jobsTotal = $body['jobs_total'] ?? count($jobTokens);
+            $this->runs->start($run, $jobsTotal);
 
             return response()->json([
-                'message' => 'Scrape started successfully.',
-                'run_id' => $run->id,
-                'jobs_total' => $body['jobs_total'] ?? count($jobTokens),
+                'message'    => 'Scrape started successfully.',
+                'run_id'     => $run->id,
+                'jobs_total' => $jobsTotal,
             ], 202);
-
-        } catch (\Throwable $e) {
-
+        } catch (Throwable $e) {
             Log::error('Unable to contact Node scraper.', [
                 'error' => $e->getMessage(),
             ]);
@@ -85,20 +81,18 @@ class ScrapeController extends Controller
         }
     }
 
+    /**
+     * Handle incoming callback from the Node scraper.
+     */
     public function callback(ScrapeCallbackRequest $request): JsonResponse
     {
         try {
-
-            $this->callbacks->process(
-                $request->validated()
-            );
+            $this->callbacks->process($request->validated());
 
             return response()->json([
                 'message' => 'Callback processed.',
             ]);
-
-        } catch (\Throwable $e) {
-
+        } catch (Throwable $e) {
             Log::error('Callback processing failed.', [
                 'error' => $e->getMessage(),
             ]);

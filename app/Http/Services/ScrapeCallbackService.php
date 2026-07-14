@@ -15,29 +15,25 @@ class ScrapeCallbackService
     ) {
     }
 
+    /**
+     * Process incoming scraper callback.
+     */
     public function process(array $validated): void
     {
-        $run = ScrapeRun::where('token', $validated['run_token'])
-            ->firstOrFail();
+        $run = ScrapeRun::where('token', $validated['run_token'])->firstOrFail();
 
         if (in_array($run->status, ['completed', 'failed'])) {
             return;
         }
 
         DB::transaction(function () use ($validated, $run) {
-
-            $job = $this->jobs->lock(
-                $run,
-                $validated['job_token']
-            );
+            $job = $this->jobs->lock($run, $validated['job_token']);
 
             if (!$job) {
-
                 Log::warning('Unknown job token received.', [
-                    'run_id' => $run->id,
+                    'run_id'    => $run->id,
                     'job_token' => $validated['job_token'],
                 ]);
-
                 return;
             }
 
@@ -46,22 +42,11 @@ class ScrapeCallbackService
             }
 
             if ($validated['status'] === 'failed') {
-
-                $this->jobs->fail(
-                    $job,
-                    $validated['error'] ?? null
-                );
-
+                $this->jobs->fail($job, $validated['error'] ?? null);
                 $this->runs->incrementFailed($run);
-
             } else {
-
-                $this->books->import(
-                    $validated['books']
-                );
-
+                $this->books->import($validated['books'] ?? []);
                 $this->jobs->complete($job);
-
                 $this->runs->incrementCompleted($run);
             }
 

@@ -21,19 +21,19 @@ class ScrapeRunService
     }
 
     /**
-     * Mark the run as started.
+     * Mark the run as active and set total jobs.
      */
     public function start(ScrapeRun $run, int $jobsTotal): void
     {
         $run->update([
-            'status'      => 'running',
-            'jobs_total'  => $jobsTotal,
-            'started_at'  => now(),
+            'status'     => 'running',
+            'jobs_total' => $jobsTotal,
+            'started_at' => now(),
         ]);
     }
 
     /**
-     * Increment completed jobs.
+     * Increment the completed jobs counter.
      */
     public function incrementCompleted(ScrapeRun $run): void
     {
@@ -41,7 +41,7 @@ class ScrapeRunService
     }
 
     /**
-     * Increment failed jobs.
+     * Increment the failed jobs counter.
      */
     public function incrementFailed(ScrapeRun $run): void
     {
@@ -54,14 +54,14 @@ class ScrapeRunService
     public function fail(ScrapeRun $run, ?string $error = null): void
     {
         $run->update([
-            'status'         => 'failed',
-            'error_message'  => $error,
-            'completed_at'   => now(),
+            'status'        => 'failed',
+            'error_message' => $error,
+            'completed_at'  => now(),
         ]);
     }
 
     /**
-     * Finish the run if every job has reported.
+     * Finalize the run if all jobs have finished reporting.
      */
     public function finishIfComplete(ScrapeRun $run): void
     {
@@ -72,10 +72,7 @@ class ScrapeRunService
         }
 
         $run->update([
-            'status' => $run->jobs_done > 0
-                ? 'completed'
-                : 'failed',
-
+            'status'       => $run->jobs_done > 0 ? 'completed' : 'failed',
             'completed_at' => now(),
         ]);
     }

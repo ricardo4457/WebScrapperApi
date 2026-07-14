@@ -8,7 +8,7 @@ use App\Models\ScrapeRunJob;
 class ScrapeJobService
 {
     /**
-     * Register all jobs returned by the Node service.
+     * Register multiple jobs linked to a run.
      */
     public function createJobs(ScrapeRun $run, array $jobTokens): void
     {
@@ -32,7 +32,7 @@ class ScrapeJobService
     }
 
     /**
-     * Find and lock a job for update.
+     * Lock job row for update inside a transaction.
      */
     public function lock(ScrapeRun $run, string $jobToken): ?ScrapeRunJob
     {
@@ -43,7 +43,7 @@ class ScrapeJobService
     }
 
     /**
-     * Mark a job as completed.
+     * Mark job as completed.
      */
     public function complete(ScrapeRunJob $job): void
     {
@@ -54,7 +54,7 @@ class ScrapeJobService
     }
 
     /**
-     * Mark a job as failed.
+     * Mark job as failed.
      */
     public function fail(ScrapeRunJob $job, ?string $error = null): void
     {
@@ -66,7 +66,7 @@ class ScrapeJobService
     }
 
     /**
-     * Has this job already reported?
+     * Check if job status is no longer pending.
      */
     public function alreadyProcessed(ScrapeRunJob $job): bool
     {
