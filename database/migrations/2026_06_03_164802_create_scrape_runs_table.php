@@ -6,6 +6,9 @@ use Illuminate\Support\Facades\Schema;
 
 return new class extends Migration
 {
+    /**
+     * Run the migrations.
+     */
     public function up(): void
     {
         Schema::create('scrape_runs', function (Blueprint $table) {
@@ -24,6 +27,11 @@ return new class extends Migration
 
             $table->json('params')->nullable();
 
+            // Counters for tracking progress
+            $table->unsignedInteger('jobs_total')->default(0);
+            $table->unsignedInteger('jobs_done')->default(0);
+            $table->unsignedInteger('jobs_failed')->default(0);
+
             $table->text('error_message')->nullable();
 
             $table->timestamp('started_at')->nullable();
@@ -33,6 +41,9 @@ return new class extends Migration
         });
     }
 
+    /**
+     * Reverse the migrations.
+     */
     public function down(): void
     {
         Schema::dropIfExists('scrape_runs');
