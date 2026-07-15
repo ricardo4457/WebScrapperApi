@@ -3,25 +3,29 @@
 namespace App\Http\Middleware;
 
 use Closure;
+use App\Models\ScrapeRun;
 use Illuminate\Http\Request;
 use Symfony\Component\HttpFoundation\Response;
-use Symfony\Component\HttpKernel\Exception\HttpException;
 
 class VerifyNodeApiKey
 {
     public function handle(Request $request, Closure $next): Response
     {
-        $expectedKey = config('services.node_scraper.api_key');
+        // 1. Get the dynamic token sent in the JSON body of the callback
+        $providedToken = $request->input('run_token');
 
-        if (!is_string($expectedKey) || $expectedKey === '') {
-            throw new HttpException(500, 'Scraper API key is not configured on the server.');
+        if (!is_string($providedToken) || $providedToken === '') {
+            return response()->json(['message' => 'Unauthorized: Missing run_token'], 401);
         }
 
-        $providedKey = $request->header('X-API-KEY');
+        // 2. Check if a pending run exists in the database with this token
+        $runExists = ScrapeRun::where('token', $providedToken)
+            ->where('status', 'pending')
+            ->exists();
 
-
-        if (!is_string($providedKey) || !hash_equals($expectedKey, $providedKey)) {
-            return response()->json(['message' => 'Unauthorized'], 401);
+        // 3. If no active run matches, block the request
+        if (!$runExists) {
+            return response()->json(['message' => 'Unauthorized: Invalid or expired token'], 401);
         }
 
         return $next($request);
