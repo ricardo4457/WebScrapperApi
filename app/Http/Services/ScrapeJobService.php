@@ -8,17 +8,18 @@ use App\Models\ScrapeRunJob;
 class ScrapeJobService
 {
     /**
-     * Register multiple jobs linked to a run.
+     * Register multiple jobs linked to a run using bulk insertion.
+     * Optimized to execute a single query instead of N queries in a loop.
      */
     public function createJobs(ScrapeRun $run, array $jobTokens): void
     {
-        foreach ($jobTokens as $jobToken) {
-            ScrapeRunJob::create([
-                'scrape_run_id' => $run->id,
-                'job_token'     => $jobToken,
-                'status'        => 'pending',
-            ]);
-        }
+        $jobs = array_map(fn($token) => [
+            'job_token' => $token,
+            'status'    => 'pending',
+        ], $jobTokens);
+
+        // Uses Laravel's relation to bulk-insert with timestamps automatically
+        $run->jobs()->createMany($jobs);
     }
 
     /**
@@ -33,6 +34,7 @@ class ScrapeJobService
 
     /**
      * Lock job row for update inside a transaction.
+     * Make sure to call this method inside a DB::transaction() block.
      */
     public function lock(ScrapeRun $run, string $jobToken): ?ScrapeRunJob
     {
@@ -40,6 +42,18 @@ class ScrapeJobService
             ->where('job_token', $jobToken)
             ->lockForUpdate()
             ->first();
+    }
+
+    /**
+     * Mark job as running and map the corresponding BullMQ Job ID.
+     */
+    public function start(ScrapeRunJob $job, string $bullmqJobId): void
+    {
+        $job->update([
+            'status'        => 'running',
+            'bullmq_job_id' => $bullmqJobId,
+            'reported_at'   => now(),
+        ]);
     }
 
     /**
@@ -66,10 +80,11 @@ class ScrapeJobService
     }
 
     /**
-     * Check if job status is no longer pending.
+     * Check if the job has already reached a terminal state (completed or failed).
+     * Useful to prevent reprocessing retried callback webhooks.
      */
-    public function alreadyProcessed(ScrapeRunJob $job): bool
+    public function isFinished(ScrapeRunJob $job): bool
     {
-        return $job->status !== 'pending';
+        return in_array($job->status, ['completed', 'failed']);
     }
 }
