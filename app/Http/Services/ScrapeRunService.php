@@ -1,6 +1,6 @@
 <?php
 
-namespace App\Services;
+namespace App\Http\Services;
 
 use App\Models\ScrapeRun;
 use Illuminate\Support\Str;
@@ -13,10 +13,10 @@ class ScrapeRunService
     public function create(array $validated): ScrapeRun
     {
         return ScrapeRun::create([
-            'token'    => Str::random(48),
-            'strategy' => $validated['strategy'],
-            'status'   => 'pending',
-            'params'   => $validated,
+            'token'      => Str::random(48),
+            'strategy'   => $validated['strategy'],
+            'status'     => 'pending',
+            'params'     => $validated,
         ]);
     }
 

@@ -4,9 +4,9 @@ namespace App\Http\Controllers;
 
 use App\Http\Requests\ScrapeCallbackRequest;
 use App\Http\Requests\StartScrapeRequest;
-use App\Services\ScrapeCallbackService;
-use App\Services\ScrapeJobService;
-use App\Services\ScrapeRunService;
+use App\Http\Services\ScrapeCallbackService;
+use App\Http\Services\ScrapeJobService;
+use App\Http\Services\ScrapeRunService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Log;
@@ -26,25 +26,26 @@ class ScrapeController extends Controller
     public function runScrape(StartScrapeRequest $request): JsonResponse
     {
         $validated = $request->validated();
+
+        // 1. Generate the Run record + dynamic 48-char token
         $run = $this->runs->create($validated);
 
         try {
-            $response = Http::withHeaders([
-                'X-API-KEY' => config('services.node_scraper.api_key'),
-            ])
-                ->timeout(10)
+            // 2. Dispatch request to Node.js Scraper on correct '/scrape' endpoint
+            $response = Http::timeout(10)
                 ->post(
-                    config('services.node_scraper.url') . '/scrape/run',
+                    rtrim(config('services.node_scraper.url', 'http://localhost:3000'), '/') . '/scrape',
                     [
                         ...$validated,
                         'callback_url' => route('book-scraper.callback'),
-                        'run_token'    => $run->token,
+                        'run_token'    => $run->token, // The transient secure token
                     ]
                 );
 
             if ($response->failed()) {
-                Log::error('Node scraper returned an error.', [
-                    'body' => $response->body(),
+                Log::error('Node scraper returned an error status code.', [
+                    'status' => $response->status(),
+                    'body'   => $response->body(),
                 ]);
 
                 $this->runs->fail($run, $response->body());
@@ -58,6 +59,7 @@ class ScrapeController extends Controller
             $body = $response->json();
             $jobTokens = $body['job_tokens'] ?? [];
 
+            // 3. Register jobs locally and spin up run session
             $this->jobs->createJobs($run, $jobTokens);
 
             $jobsTotal = $body['jobs_total'] ?? count($jobTokens);
@@ -68,8 +70,9 @@ class ScrapeController extends Controller
                 'run_id'     => $run->id,
                 'jobs_total' => $jobsTotal,
             ], 202);
+
         } catch (Throwable $e) {
-            Log::error('Unable to contact Node scraper.', [
+            Log::error('Unable to establish connection with Node scraper.', [
                 'error' => $e->getMessage(),
             ]);
 
@@ -90,7 +93,7 @@ class ScrapeController extends Controller
             $this->callbacks->process($request->validated());
 
             return response()->json([
-                'message' => 'Callback processed.',
+                'message' => 'Callback processed successfully.',
             ]);
         } catch (Throwable $e) {
             Log::error('Callback processing failed.', [
