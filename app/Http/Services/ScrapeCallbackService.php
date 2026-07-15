@@ -37,7 +37,8 @@ class ScrapeCallbackService
                 return;
             }
 
-            if ($this->jobs->alreadyProcessed($job)) {
+            // ⚡ ALTERADO AQUI: Uso do isFinished para suportar o estado "running"
+            if ($this->jobs->isFinished($job)) {
                 return;
             }
 
