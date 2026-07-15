@@ -1,5 +1,4 @@
 <?php
-// app/Models/ScrapeRunJob.php
 
 namespace App\Models;
 
@@ -8,14 +7,22 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
 
 class ScrapeRunJob extends Model
 {
-    protected $guarded = [];
+    protected $fillable = [
+        'scrape_run_id',
+        'job_token',
+        'bullmq_job_id',
+        'status',
+        'error_message',
+        'reported_at',
+    ];
 
     protected $casts = [
         'reported_at' => 'datetime',
     ];
 
-    public function scrapeRun(): BelongsTo
+
+    public function run(): BelongsTo
     {
-        return $this->belongsTo(ScrapeRun::class);
+        return $this->belongsTo(ScrapeRun::class, 'scrape_run_id');
     }
 }
