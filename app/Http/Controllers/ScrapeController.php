@@ -9,6 +9,7 @@ use App\Http\Services\ScrapeJobService;
 use App\Http\Services\ScrapeRunService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Support\Facades\Http;
+use Illuminate\Support\Str;
 use Illuminate\Support\Facades\Log;
 use Throwable;
 
@@ -29,18 +30,15 @@ class ScrapeController extends Controller
 
         // 1. Generate the Run record + dynamic 48-char token
         $run = $this->runs->create($validated);
-
+        $jobTokens = [Str::uuid()->toString(), Str::uuid()->toString()];
         try {
             // 2. Dispatch request to Node.js Scraper on correct '/scrape' endpoint
-            $response = Http::timeout(10)
-                ->post(
-                    rtrim(config('services.node_scraper.url', 'http://localhost:3000'), '/') . '/scrape',
-                    [
-                        ...$validated,
-                        'callback_url' => route('book-scraper.callback'),
-                        'run_token'    => $run->token, // The transient secure token
-                    ]
-                );
+            $response = Http::post(config('services.node_scraper.url') . '/scrape', [
+                ...$validated,
+                'callback_url' => route('book-scraper.callback'),
+                'run_token'    => $run->token,
+                'job_tokens'   => $jobTokens,
+            ]);
 
             if ($response->failed()) {
                 Log::error('Node scraper returned an error status code.', [
@@ -70,7 +68,6 @@ class ScrapeController extends Controller
                 'run_id'     => $run->id,
                 'jobs_total' => $jobsTotal,
             ], 202);
-
         } catch (Throwable $e) {
             Log::error('Unable to establish connection with Node scraper.', [
                 'error' => $e->getMessage(),
@@ -105,4 +102,15 @@ class ScrapeController extends Controller
             ], 500);
         }
     }
+
+    public function monitor(int $runId)
+{
+    $run = \App\Models\ScrapeRun::findOrFail($runId);
+    return response()->json([
+        'status' => $run->status,
+        'progresso' => "{$run->jobs_done} de {$run->jobs_total} concluídos",
+        'erros' => $run->jobs_failed,
+        'ultima_atualizacao' => $run->updated_at
+    ]);
+}
 }

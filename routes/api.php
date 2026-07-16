@@ -12,3 +12,6 @@ Route::post('/book-scraper/callback', [ScrapeController::class, 'callback'])
 // Run Route (Temporarily commented out auth:sanctum for Postman testing)
 Route::post('/book-scraper/run', [ScrapeController::class, 'runScrape'])
     ->middleware(['throttle:10,1']);
+
+Route::get('/book-scraper/status/{runId}', [ScrapeController::class, 'monitor'])
+    ->name('book-scraper.status');
