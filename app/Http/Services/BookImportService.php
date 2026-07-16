@@ -32,7 +32,7 @@ class BookImportService
 
                     $book = $this->findOrCreateBook($item);
 
-                    $this->attachBookToSchool($school->id, $book->id, $item);
+                    $this->attachBookToSchool($school->id, $entry, $item);
                 }
             } catch (Exception $e) {
                 Log::error('[BookImportService] Error processing school batch: ' . $e->getMessage(), [
@@ -79,16 +79,16 @@ class BookImportService
     /**
      * Link book to school.
      */
-    protected function attachBookToSchool(int $schoolId, int $bookId, array $item): void
+    protected function attachBookToSchool(int $schoolId, Book $book, array $item): void
     {
         SchoolBook::updateOrCreate(
             [
                 'school_id' => $schoolId,
-                'book_id'   => $bookId,
+                'book_id'   => $book->id,
                 'year'      => $item['year'] ?? null,
             ],
             [
-                'teaching_cycle' => $item['teaching_cycle'] ?? null,
+                'teaching_cycle' => $book->teaching_cycle ?? null,
             ]
         );
     }
