@@ -17,7 +17,7 @@ class StartScrapeRequest extends FormRequest
         return [
             'strategy' => [
                 'required',
-                Rule::in(['single_school', 'full_district', 'full_curriculum']),
+                'string',
             ],
             'year' => ['required', 'string'],
             'teaching_cycle' => ['nullable', 'string'],
@@ -28,7 +28,6 @@ class StartScrapeRequest extends FormRequest
             'district' => [
                 'nullable',
                 'string',
-                'required_if:strategy,full_district'
             ],
             'city' => ['nullable', 'string'],
 
@@ -38,7 +37,6 @@ class StartScrapeRequest extends FormRequest
             'school' => [
                 'nullable',
                 'string',
-                'required_if:strategy,single_school'
             ],
 
             /*
@@ -54,7 +52,7 @@ class StartScrapeRequest extends FormRequest
         return [
             'school.required_if' => 'The school name is required when strategy is single_school.',
             'district.required_if' => 'The district is required when strategy is full_district.',
-            'strategy.in' => 'Invalid scraping strategy.',
+            'strategy.string' => 'Invalid scraping strategy.',
         ];
     }
 }
