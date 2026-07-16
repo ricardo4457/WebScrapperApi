@@ -14,11 +14,10 @@ class ScrapeJobService
     public function createJobs(ScrapeRun $run, array $jobTokens): void
     {
         $jobs = array_map(fn($token) => [
-            'job_token' => $token,
+            'job_token' => $token, // Usa o token que veio do array original
             'status'    => 'pending',
         ], $jobTokens);
 
-        // Uses Laravel's relation to bulk-insert with timestamps automatically
         $run->jobs()->createMany($jobs);
     }
 
