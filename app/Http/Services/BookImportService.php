@@ -6,7 +6,7 @@ use App\Models\Book;
 use App\Models\School;
 use App\Models\SchoolBook;
 use Illuminate\Support\Facades\Log;
-use Exception;
+use Throwable;
 
 class BookImportService
 {
@@ -32,9 +32,9 @@ class BookImportService
 
                     $book = $this->findOrCreateBook($item);
 
-                    $this->attachBookToSchool($school->id, $entry, $item);
+                    $this->attachBookToSchool($school->id, $book, $item);
                 }
-            } catch (Exception $e) {
+            } catch (Throwable $e) {
                 Log::error('[BookImportService] Error processing school batch: ' . $e->getMessage(), [
                     'school' => $entry['school'] ?? 'Unknown'
                 ]);
@@ -88,7 +88,7 @@ class BookImportService
                 'year'      => $item['year'] ?? null,
             ],
             [
-                'teaching_cycle' => $book->teaching_cycle ?? null,
+                'teaching_cycle' => $item['teaching_cycle'] ?? null,
             ]
         );
     }
