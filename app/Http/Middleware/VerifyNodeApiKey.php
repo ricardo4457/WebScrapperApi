@@ -18,9 +18,10 @@ class VerifyNodeApiKey
             return response()->json(['message' => 'Unauthorized: Missing run_token'], 401);
         }
 
-        // 2. Check if a pending run exists in the database with this token
+        // 2. Check if a run exists in the database
+
         $runExists = ScrapeRun::where('token', $providedToken)
-            ->where('status', 'pending')
+            ->whereNotIn('status', ['completed', 'failed'])
             ->exists();
 
         // 3. If no active run matches, block the request
