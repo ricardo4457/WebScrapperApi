@@ -33,9 +33,12 @@ class ScrapeController extends Controller
         $jobTokens = [Str::uuid()->toString(), Str::uuid()->toString()];
         try {
             // 2. Dispatch request to Node.js Scraper on correct '/scrape' endpoint
+            $callbackUrl = rtrim(config('services.node_scraper.callback_base_url'), '/')
+                . route('book-scraper.callback', absolute: false);
+
             $response = Http::post(config('services.node_scraper.url') . '/scrape', [
                 ...$validated,
-                'callback_url' => route('book-scraper.callback'),
+                'callback_url' => $callbackUrl,
                 'run_token'    => $run->token,
                 'job_tokens'   => $jobTokens,
             ]);

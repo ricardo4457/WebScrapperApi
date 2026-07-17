@@ -20,6 +20,11 @@ return [
 
     'node_scraper' => [
         'url' => env('NODE_SCRAPER_URL', 'http://localhost:3000'),
+        // URL pela qual o worker Node (a correr em Docker) consegue
+        // alcançar este Laravel (a correr no host). NÃO usar
+        // config('app.url')/route() aqui — isso dá 127.0.0.1, que
+        // dentro do container do worker aponta para o próprio container.
+        'callback_base_url' => env('NODE_CALLBACK_BASE_URL', config('app.url')),
     ],
 
     'resend' => [
