@@ -12,35 +12,50 @@ class StartScrapeRequest extends FormRequest
         return true;
     }
 
+    /**
+     * Strategies currently implemented in the Node worker.
+     * Keep this list in sync with StrategyFactory.js.
+     */
+    private const IMPLEMENTED_STRATEGIES = ['single_school', 'single_school_tooltip'];
+
     public function rules(): array
     {
         return [
             'strategy' => [
                 'required',
                 'string',
+                Rule::in(self::IMPLEMENTED_STRATEGIES),
             ],
             'year' => ['required', 'string'],
             'teaching_cycle' => ['nullable', 'string'],
 
-            /*
-             * District & Location rules
+     /*
+             * Required for single school strategies.
              */
             'district' => [
                 'nullable',
                 'string',
+                Rule::requiredIf(in_array($this->input('strategy'), ['single_school', 'single_school_tooltip'], true)),
             ],
-            'city' => ['nullable', 'string'],
+            'city' => [
+                'nullable',
+                'string',
+                Rule::requiredIf(in_array($this->input('strategy'), ['single_school', 'single_school_tooltip'], true)),
+            ],
 
-            /*
-             * School rules (renamed 'name' to 'school' to match your API contract)
+          /*
+             * Required for single school strategies.
              */
             'school' => [
                 'nullable',
                 'string',
+                Rule::requiredIf(in_array($this->input('strategy'), ['single_school', 'single_school_tooltip'], true)),
             ],
 
+
             /*
-             * Optional array of schools for batch processing
+             * Optional list of schools for batch scraping.
+             * Reserved for future strategies.
              */
             'schools' => ['nullable', 'array'],
             'schools.*' => ['string'],
@@ -50,9 +65,10 @@ class StartScrapeRequest extends FormRequest
     public function messages(): array
     {
         return [
-            'school.required_if' => 'The school name is required when strategy is single_school.',
-            'district.required_if' => 'The district is required when strategy is full_district.',
-            'strategy.string' => 'Invalid scraping strategy.',
+            'strategy.in' => 'Invalid or not-yet-implemented scraping strategy.',
+            'school.required' => 'The school name is required for this strategy.',
+            'district.required' => 'The district is required for this strategy.',
+            'city.required' => 'The city is required for this strategy.',
         ];
     }
 }
