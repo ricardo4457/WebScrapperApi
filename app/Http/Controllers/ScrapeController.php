@@ -43,6 +43,22 @@ class ScrapeController extends Controller
                 'job_tokens'   => $jobTokens,
             ]);
 
+            // DEBUG: Log request sent to Node and raw response
+
+            Log::debug('[ScrapeController] Payload enviado ao Node.', [
+                'url'     => config('services.node_scraper.url') . '/scrape',
+                'payload' => [
+                    ...$validated,
+                    'callback_url' => $callbackUrl,
+                    'run_token'    => $run->token,
+                    'job_tokens'   => $jobTokens,
+                ],
+            ]);
+            Log::debug('[ScrapeController] Resposta bruta do Node.', [
+                'status' => $response->status(),
+                'body'   => $response->body(), // Raw body in case JSON parsing fails
+            ]);
+
             if ($response->failed()) {
                 Log::error('Node scraper returned an error status code.', [
                     'status' => $response->status(),
@@ -90,6 +106,18 @@ class ScrapeController extends Controller
     public function callback(ScrapeCallbackRequest $request): JsonResponse
     {
         try {
+            Log::info('[ScrapeCallback] Processing incoming callback.', [
+                'run_token' => $request->input('run_token'),
+                'job_token' => $request->input('job_token'),
+                'status'    => $request->input('status'),
+                'books_count' => is_array($request->input('books')) ? count($request->input('books')) : 0,
+            ]);
+
+            // DEBUG: Log full callback payload
+            Log::debug('[ScrapeCallback] Payload bruto recebido.', [
+                'all' => $request->all(),
+            ]);
+
             $this->callbacks->process($request->validated());
 
             return response()->json([
@@ -107,13 +135,13 @@ class ScrapeController extends Controller
     }
 
     public function monitor(int $runId)
-{
-    $run = \App\Models\ScrapeRun::findOrFail($runId);
-    return response()->json([
-        'status' => $run->status,
-        'progresso' => "{$run->jobs_done} de {$run->jobs_total} concluídos",
-        'erros' => $run->jobs_failed,
-        'ultima_atualizacao' => $run->updated_at
-    ]);
-}
+    {
+        $run = \App\Models\ScrapeRun::findOrFail($runId);
+        return response()->json([
+            'status' => $run->status,
+            'progresso' => "{$run->jobs_done} de {$run->jobs_total} concluídos",
+            'erros' => $run->jobs_failed,
+            'ultima_atualizacao' => $run->updated_at
+        ]);
+    }
 }
