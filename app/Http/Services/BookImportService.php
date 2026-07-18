@@ -76,20 +76,20 @@ class BookImportService
         );
     }
 
-    /**
-     * Link book to school.
-     */
+/**
+ * Link a book to a school.
+ * Match the database unique key.
+ */
     protected function attachBookToSchool(int $schoolId, Book $book, array $item): void
     {
         SchoolBook::updateOrCreate(
             [
-                'school_id' => $schoolId,
-                'book_id'   => $book->id,
-                'year'      => $item['year'] ?? null,
-            ],
-            [
+                'school_id'      => $schoolId,
+                'book_id'        => $book->id,
+                'year'           => $item['year'] ?? null,
                 'teaching_cycle' => $item['teaching_cycle'] ?? null,
-            ]
+            ],
+            []
         );
     }
 }
