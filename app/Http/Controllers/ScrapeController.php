@@ -4,9 +4,9 @@ namespace App\Http\Controllers;
 
 use App\Http\Requests\ScrapeCallbackRequest;
 use App\Http\Requests\StartScrapeRequest;
-use App\Http\Services\ScrapeCallbackService;
-use App\Http\Services\ScrapeJobService;
-use App\Http\Services\ScrapeRunService;
+use App\Http\Services\Scrape\ScrapeCallbackService;
+use App\Http\Services\Scrape\ScrapeJobService;
+use App\Http\Services\Scrape\ScrapeRunService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Str;

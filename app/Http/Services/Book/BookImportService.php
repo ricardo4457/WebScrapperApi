@@ -1,6 +1,6 @@
 <?php
 
-namespace App\Http\Services;
+namespace App\Http\Services\Book;
 
 use App\Models\Book;
 use App\Models\School;

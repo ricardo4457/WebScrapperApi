@@ -1,10 +1,14 @@
 <?php
 
-namespace App\Http\Services;
+namespace App\Http\Services\Scrape;
 
 use App\Models\ScrapeRun;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
+
+use App\Http\Services\Scrape\ScrapeRunService;
+use App\Http\Services\Scrape\ScrapeJobService;
+use App\Http\Services\Book\BookImportService;
 
 class ScrapeCallbackService
 {
