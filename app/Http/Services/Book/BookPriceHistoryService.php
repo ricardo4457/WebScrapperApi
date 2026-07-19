@@ -8,36 +8,52 @@ use Illuminate\Support\Facades\DB;
 class BookPriceHistoryService
 {
     /**
-     * Updates the current book price and records it if it changed.
-     *
-     * @param Book $book The book model to update
-     * @param float|null $newPrice The new price to set; if null, no action is taken
-     * @return void
+     * Tolerance for comparing currency values.
+     */
+    private const PRICE_EPSILON = 0.001;
+
+    /**
+     * Updates the current price and records price changes.
      */
     public function recordIfChanged(Book $book, ?float $newPrice): void
     {
-        // Skip if no price is provided
         if ($newPrice === null) {
             return;
         }
 
-        // Skip if price hasn't changed (cast to float for comparison)
-        if ((float) $book->price === $newPrice) {
+        $hasExistingHistory = $book->priceHistory()->exists();
+        $priceUnchanged = $this->pricesAreEqual((float) $book->price, $newPrice);
+
+
+        if ($hasExistingHistory && $priceUnchanged) {
             return;
         }
 
-        // Atomically update the book price and create a history record
+        $this->persistPriceChange($book, $newPrice);
+    }
+
+    /**
+     * Persists the current price and its history.
+     */
+    private function persistPriceChange(Book $book, float $newPrice): void
+    {
         DB::transaction(function () use ($book, $newPrice) {
-            // Update the book with the new price
             $book->update([
                 'price' => $newPrice,
             ]);
 
-            // Record the price change in the history
             $book->priceHistory()->create([
                 'price'       => $newPrice,
                 'recorded_at' => now(),
             ]);
         });
+    }
+
+    /**
+     * Compares two prices using a tolerance.
+     */
+    private function pricesAreEqual(float $a, float $b): bool
+    {
+        return abs($a - $b) < self::PRICE_EPSILON;
     }
 }
