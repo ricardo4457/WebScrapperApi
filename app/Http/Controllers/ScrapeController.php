@@ -136,12 +136,22 @@ class ScrapeController extends Controller
 
     public function monitor(int $runId)
     {
-        $run = \App\Models\ScrapeRun::findOrFail($runId);
+        $run = \App\Models\ScrapeRun::with('jobs')->findOrFail($runId);
+
         return response()->json([
-            'status' => $run->status,
-            'progresso' => "{$run->jobs_done} de {$run->jobs_total} concluídos",
-            'erros' => $run->jobs_failed,
-            'ultima_atualizacao' => $run->updated_at
+            'status'          => $run->status,
+            'progress'        => "{$run->jobs_done} of {$run->jobs_total} completed",
+            'failed'          => $run->jobs_failed,
+            'last_updated'    => $run->updated_at,
+            'books_imported'  => $run->jobs->sum('books_imported'),
+            'books_skipped'   => $run->jobs->sum('books_skipped'),
+            'errors_per_job'  => $run->jobs
+                ->filter(fn($job) => !empty($job->import_errors))
+                ->map(fn($job) => [
+                    'job_token' => $job->job_token,
+                    'errors'    => $job->import_errors,
+                ])
+                ->values(),
         ]);
     }
 }
