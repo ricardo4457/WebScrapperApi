@@ -23,7 +23,7 @@ class ScrapeCallbackService
      */
     public function process(array $validated): void
     {
-        // Log do payload completo recebido do webhook
+        // Log the incoming payload for debugging purposes
         Log::info('[ScrapeCallback] Received webhook payload.', [
             'run_token' => $validated['run_token'] ?? 'missing',
             'job_token' => $validated['job_token'] ?? 'missing',
@@ -61,13 +61,25 @@ class ScrapeCallbackService
             } else {
                 Log::info('[ScrapeCallback] Importing books for job.', ['job_id' => $job->id]);
 
-                // LOG DE ESTRUTURA: Ajuda a ver se o Node está a enviar o que esperas
+                // Debug incoming payload structure.
                 Log::debug('[ScrapeCallback] Books payload structure:', ['first_entry' => $validated['books'][0] ?? 'empty']);
 
-                $this->books->import($validated['books'] ?? []);
+                $report = $this->books->import($validated['books'] ?? []);
 
-                $this->jobs->complete($job);
-                $this->runs->incrementCompleted($run);
+                Log::info('[ScrapeCallback] Import report.', [
+                    'job_id'   => $job->id,
+                    'imported' => $report['imported'],
+                    'skipped'  => $report['skipped'],
+                    'errors'   => $report['errors'],
+                ]);
+
+                if ($report['imported'] === 0 && $report['skipped'] > 0) {
+                    $this->jobs->fail($job, 'No books were imported.');
+                    $this->runs->incrementFailed($run);
+                } else {
+                    $this->jobs->complete($job);
+                    $this->runs->incrementCompleted($run);
+                }
             }
 
             $this->runs->finishIfComplete($run);
