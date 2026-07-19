@@ -3,7 +3,8 @@
 namespace App\Models;
 
 use Illuminate\Database\Eloquent\Model;
-
+use Illuminate\Database\Eloquent\Relations\BelongsToMany;
+use  App\Models\BookPriceHistory;
 class Book extends Model
 {
     protected $fillable = [
@@ -20,6 +21,7 @@ class Book extends Model
         'price'   => 'decimal:2',
         'authors' => 'array',
     ];
+
     public function schoolBooks()
     {
         return $this->hasMany(SchoolBook::class);
@@ -30,5 +32,10 @@ class Book extends Model
         return $this->belongsToMany(School::class, 'school_books')
             ->withPivot('year', 'teaching_cycle')
             ->withTimestamps();
+    }
+
+    public function priceHistory()
+    {
+        return $this->hasMany(BookPriceHistory::class);
     }
 }
