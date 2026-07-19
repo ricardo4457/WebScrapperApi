@@ -68,6 +68,7 @@ class BookImportService
                 'publisher' => $item['publisher'] ?? null,
             ],
             [
+                'authors'    => $item['authors'] ?? null,
                 'cover_path' => $item['cover_path'] ?? null,
                 'price'      => $item['price'] ?? null,
                 'discipline' => $item['discipline'] ?? null,
@@ -76,10 +77,10 @@ class BookImportService
         );
     }
 
-/**
- * Link a book to a school.
- * Match the database unique key.
- */
+    /**
+     * Link a book to a school.
+     * Match the database unique key.
+     */
     protected function attachBookToSchool(int $schoolId, Book $book, array $item): void
     {
         SchoolBook::updateOrCreate(
