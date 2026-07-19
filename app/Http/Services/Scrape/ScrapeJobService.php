@@ -58,11 +58,14 @@ class ScrapeJobService
     /**
      * Mark job as completed.
      */
-    public function complete(ScrapeRunJob $job): void
+    public function complete(ScrapeRunJob $job, array $report = []): void
     {
         $job->update([
-            'status'      => 'completed',
-            'reported_at' => now(),
+            'status'         => 'completed',
+            'reported_at'    => now(),
+            'books_imported' => $report['imported'] ?? 0,
+            'books_skipped'  => $report['skipped'] ?? 0,
+            'import_errors'  => $report['errors'] ?? null,
         ]);
     }
 

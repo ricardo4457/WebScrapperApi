@@ -28,6 +28,10 @@ return new class extends Migration
                 'failed'
             ])->default('pending');
 
+            $table->unsignedInteger('books_imported')->default(0);
+            $table->unsignedInteger('books_skipped')->default(0);
+            $table->json('import_errors')->nullable();
+
             $table->text('error_message')->nullable();
             $table->timestamp('reported_at')->nullable();
 

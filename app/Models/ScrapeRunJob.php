@@ -14,10 +14,14 @@ class ScrapeRunJob extends Model
         'status',
         'error_message',
         'reported_at',
+        'books_imported',
+        'books_skipped',
+        'import_errors',
     ];
 
     protected $casts = [
-        'reported_at' => 'datetime',
+        'reported_at'    => 'datetime',
+        'import_errors'  => 'array',
     ];
 
 
