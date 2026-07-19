@@ -10,9 +10,15 @@ use Throwable;
 
 class BookImportService
 {
+
+    public function __construct(
+        protected BookPriceHistoryService $priceHistory,
+    ) {}
+
     /**
-     * Import books from scraper payload.
+     * Imports scraped books into the database.
      */
+
     public function import(array $books): void
     {
         foreach ($books as $entry) {
@@ -44,8 +50,9 @@ class BookImportService
     }
 
     /**
-     * Find or create a school.
+     * Finds or creates a school.
      */
+
     protected function findOrCreateSchool(array $school): School
     {
         return School::firstOrCreate(
@@ -58,11 +65,12 @@ class BookImportService
     }
 
     /**
-     * Find or create a book.
+     * Finds or creates a book and updates its price history.
      */
+
     protected function findOrCreateBook(array $item): Book
     {
-        return Book::firstOrCreate(
+        $book = Book::firstOrCreate(
             [
                 'title'     => $item['title'],
                 'publisher' => $item['publisher'] ?? null,
@@ -75,12 +83,16 @@ class BookImportService
                 'type'       => $item['type'] ?? null,
             ]
         );
+
+        $this->priceHistory->recordIfChanged($book, $item['price'] ?? null);
+
+        return $book;
     }
 
     /**
-     * Link a book to a school.
-     * Match the database unique key.
+     * Links a book to a school.
      */
+
     protected function attachBookToSchool(int $schoolId, Book $book, array $item): void
     {
         SchoolBook::updateOrCreate(
