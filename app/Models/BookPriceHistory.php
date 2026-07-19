@@ -3,6 +3,7 @@
 namespace App\Models;
 
 use Illuminate\Database\Eloquent\Model;
+use App\Models\Book;
 
 class BookPriceHistory extends Model
 {
@@ -17,8 +18,8 @@ class BookPriceHistory extends Model
         'recorded_at' => 'datetime',
     ];
 
-    public function priceHistory()
+    public function book()
     {
-        return $this->hasMany(BookPriceHistory::class);
+        return $this->belongsTo(Book::class);
     }
 }
