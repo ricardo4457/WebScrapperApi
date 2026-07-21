@@ -3,6 +3,7 @@
 namespace App\Http\Controllers;
 
 use App\Http\Requests\ScrapeCallbackRequest;
+use App\Http\Requests\StartDistrictScrapeRequest;
 use App\Http\Requests\StartScrapeRequest;
 use App\Http\Services\Scrape\ScrapeCallbackService;
 use App\Http\Services\Scrape\ScrapeJobService;
@@ -22,12 +23,33 @@ class ScrapeController extends Controller
     ) {}
 
     /**
-     * Trigger a new scrape run and dispatch it to the Node service.
+     * Trigger a new scrape run (single_school / single_school_tooltip).
      */
     public function runScrape(StartScrapeRequest $request): JsonResponse
     {
-        $validated = $request->validated();
+        return $this->dispatchRun($request->validated());
+    }
 
+    /**
+     * Trigger a full-district scrape run.
+
+     */
+    public function runDistrictScrape(StartDistrictScrapeRequest $request): JsonResponse
+    {
+        return $this->dispatchRun([
+            ...$request->validated(),
+            'strategy' => 'full_district',
+        ]);
+    }
+
+    /**
+     * Shared dispatch logic used by both runScrape() and
+     * runDistrictScrape(): create the run record, call the Node scraper,
+     * register jobs, start the run. Identical flow either way — only the
+     * validated input shape differs per strategy.
+     */
+    private function dispatchRun(array $validated): JsonResponse
+    {
         // 1. Generate the Run record + dynamic 48-char token
         $run = $this->runs->create($validated);
         $jobTokens = [Str::uuid()->toString(), Str::uuid()->toString()];
@@ -88,7 +110,7 @@ class ScrapeController extends Controller
                 'jobs_total' => $jobsTotal,
             ], 202);
         } catch (Throwable $e) {
-            Log::error('Unable to establish connection with Node scraper.', [
+            Log::error('Unable to establishgit connection with Node scraper.', [
                 'error' => $e->getMessage(),
             ]);
 
@@ -138,9 +160,22 @@ class ScrapeController extends Controller
     {
         $run = \App\Models\ScrapeRun::with('jobs')->findOrFail($runId);
 
+        // Jobs still 'pending' locally are still running on the Node side
+        // (the DB row only flips to completed/failed via the callback,
+        // which for full_district only fires once, at the very end - see
+        // ScrapeCallbackService). W(hile that's in flight, job_token IS the
+        // BullMQ job id Node assigned it see job_tokens in dispatchRun()),
+        // so we can just ask Node directly for that job's live progress.
+        $liveProgress = $run->jobs
+            ->reject(fn($job) => in_array($job->status, ['completed', 'failed']))
+            ->map(fn($job) => $this->fetchNodeJobProgress($job->job_token))
+            ->filter()
+            ->values();
+
         return response()->json([
             'status'          => $run->status,
             'progress'        => "{$run->jobs_done} of {$run->jobs_total} completed",
+            'live_progress'   => $liveProgress,
             'failed'          => $run->jobs_failed,
             'last_updated'    => $run->updated_at,
             'books_imported'  => $run->jobs->sum('books_imported'),
@@ -153,5 +188,42 @@ class ScrapeController extends Controller
                 ])
                 ->values(),
         ]);
+    }
+
+    /**
+     * Best-effort lookup of a still-running job's live BullMQ progress
+     * (0-100), reported by ScraperJob.perform() via job.updateProgress()
+     * as each school in the batch finishes. monitor() is likely polled
+     * often by a frontend, so this must never let a slow or unreachable
+     * Node service hang or break the response - on any failure it just
+     * returns null and the caller falls back to the DB's last-known
+     * status.
+     */
+    private function fetchNodeJobProgress(string $jobToken): ?array
+    {
+        try {
+            $response = Http::timeout(5)->get(
+                rtrim(config('services.node_scraper.url'), '/') . "/scrape/{$jobToken}"
+            );
+
+            if ($response->failed()) {
+                return null;
+            }
+
+            $body = $response->json();
+
+            return [
+                'job_token' => $jobToken,
+                'state'     => $body['state'] ?? null,
+                'percent'   => $body['progress'] ?? null,
+            ];
+        } catch (Throwable $e) {
+            Log::warning('[ScrapeController] Unable to fetch live progress from Node.', [
+                'job_token' => $jobToken,
+                'error'     => $e->getMessage(),
+            ]);
+
+            return null;
+        }
     }
 }

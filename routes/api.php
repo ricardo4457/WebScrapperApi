@@ -13,5 +13,10 @@ Route::post('/book-scraper/callback', [ScrapeController::class, 'callback'])
 Route::post('/book-scraper/run', [ScrapeController::class, 'runScrape'])
     ->middleware(['throttle:10,1']);
 
+// Full-district run: separate shape ({ year, district, teaching_cycle }
+// only) since FullDistrictStrategy now discovers cities/schools itself.
+Route::post('/book-scraper/run/district', [ScrapeController::class, 'runDistrictScrape'])
+    ->middleware(['throttle:10,1']);
+
 Route::get('/book-scraper/status/{runId}', [ScrapeController::class, 'monitor'])
     ->name('book-scraper.status');
