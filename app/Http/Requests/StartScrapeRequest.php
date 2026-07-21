@@ -13,8 +13,11 @@ class StartScrapeRequest extends FormRequest
     }
 
     /**
-     * Strategies currently implemented in the Node worker.
-     * Keep this list in sync with StrategyFactory.js.
+     * Strategies handled by this endpoint. full_district has its own
+     * endpoint + FormRequest (StartDistrictScrapeRequest) now, since its
+     * shape no longer matches this one — no city/school needed, the Node
+     * strategy discovers those itself. Keep this list in sync with
+     * StrategyFactory.js (minus full_district).
      */
     private const IMPLEMENTED_STRATEGIES = ['single_school', 'single_school_tooltip'];
 
@@ -28,37 +31,9 @@ class StartScrapeRequest extends FormRequest
             ],
             'year' => ['required', 'string'],
             'teaching_cycle' => ['nullable', 'string'],
-
-     /*
-             * Required for single school strategies.
-             */
-            'district' => [
-                'nullable',
-                'string',
-                Rule::requiredIf(in_array($this->input('strategy'), ['single_school', 'single_school_tooltip'], true)),
-            ],
-            'city' => [
-                'nullable',
-                'string',
-                Rule::requiredIf(in_array($this->input('strategy'), ['single_school', 'single_school_tooltip'], true)),
-            ],
-
-          /*
-             * Required for single school strategies.
-             */
-            'school' => [
-                'nullable',
-                'string',
-                Rule::requiredIf(in_array($this->input('strategy'), ['single_school', 'single_school_tooltip'], true)),
-            ],
-
-
-            /*
-             * Optional list of schools for batch scraping.
-             * Reserved for future strategies.
-             */
-            'schools' => ['nullable', 'array'],
-            'schools.*' => ['string'],
+            'district' => ['required', 'string'],
+            'city' => ['required', 'string'],
+            'school' => ['required', 'string'],
         ];
     }
 
