@@ -6,11 +6,11 @@ use App\Http\Requests\ScrapeCallbackRequest;
 use App\Http\Requests\StartDistrictScrapeRequest;
 use App\Http\Requests\StartScrapeRequest;
 use App\Http\Services\Scrape\ScrapeCallbackService;
+use App\Http\Services\Scrape\ScrapeDispatchService;
 use App\Http\Services\Scrape\ScrapeJobService;
 use App\Http\Services\Scrape\ScrapeRunService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Support\Facades\Http;
-use Illuminate\Support\Str;
 use Illuminate\Support\Facades\Log;
 use Throwable;
 
@@ -20,6 +20,7 @@ class ScrapeController extends Controller
         private ScrapeRunService $runs,
         private ScrapeJobService $jobs,
         private ScrapeCallbackService $callbacks,
+        private ScrapeDispatchService $dispatcher,
     ) {}
 
     /**
@@ -32,7 +33,6 @@ class ScrapeController extends Controller
 
     /**
      * Trigger a full-district scrape run.
-
      */
     public function runDistrictScrape(StartDistrictScrapeRequest $request): JsonResponse
     {
@@ -43,83 +43,27 @@ class ScrapeController extends Controller
     }
 
     /**
-     * Shared dispatch logic used by both runScrape() and
-     * runDistrictScrape(): create the run record, call the Node scraper,
-     * register jobs, start the run. Identical flow either way — only the
-     * validated input shape differs per strategy.
+     * Thin wrapper around ScrapeDispatchService::dispatch() that turns its
+     * result array into the JsonResponse shape both endpoints above expect.
+     * The actual "create run, call Node, register jobs" logic now lives in
+     * ScrapeDispatchService so BookSearchService can reuse it too.
      */
     private function dispatchRun(array $validated): JsonResponse
     {
-        // 1. Generate the Run record + dynamic 48-char token
-        $run = $this->runs->create($validated);
-        $jobTokens = [Str::uuid()->toString(), Str::uuid()->toString()];
-        try {
-            // 2. Dispatch request to Node.js Scraper on correct '/scrape' endpoint
-            $callbackUrl = rtrim(config('services.node_scraper.callback_base_url'), '/')
-                . route('book-scraper.callback', absolute: false);
+        $result = $this->dispatcher->dispatch($validated);
 
-            $response = Http::post(config('services.node_scraper.url') . '/scrape', [
-                ...$validated,
-                'callback_url' => $callbackUrl,
-                'run_token'    => $run->token,
-                'job_tokens'   => $jobTokens,
-            ]);
-
-            // DEBUG: Log request sent to Node and raw response
-
-            Log::debug('[ScrapeController] Payload enviado ao Node.', [
-                'url'     => config('services.node_scraper.url') . '/scrape',
-                'payload' => [
-                    ...$validated,
-                    'callback_url' => $callbackUrl,
-                    'run_token'    => $run->token,
-                    'job_tokens'   => $jobTokens,
-                ],
-            ]);
-            Log::debug('[ScrapeController] Resposta bruta do Node.', [
-                'status' => $response->status(),
-                'body'   => $response->body(), // Raw body in case JSON parsing fails
-            ]);
-
-            if ($response->failed()) {
-                Log::error('Node scraper returned an error status code.', [
-                    'status' => $response->status(),
-                    'body'   => $response->body(),
-                ]);
-
-                $this->runs->fail($run, $response->body());
-
-                return response()->json([
-                    'message' => 'Failed to start scrape.',
-                    'details' => $response->json(),
-                ], $response->status());
-            }
-
-            $body = $response->json();
-            $jobTokens = $body['job_tokens'] ?? [];
-
-            // 3. Register jobs locally and spin up run session
-            $this->jobs->createJobs($run, $jobTokens);
-
-            $jobsTotal = $body['jobs_total'] ?? count($jobTokens);
-            $this->runs->start($run, $jobsTotal);
-
+        if (!$result['ok']) {
             return response()->json([
-                'message'    => 'Scrape started successfully.',
-                'run_id'     => $run->id,
-                'jobs_total' => $jobsTotal,
-            ], 202);
-        } catch (Throwable $e) {
-            Log::error('Unable to establishgit connection with Node scraper.', [
-                'error' => $e->getMessage(),
-            ]);
-
-            $this->runs->fail($run, $e->getMessage());
-
-            return response()->json([
-                'message' => 'Internal server error.',
-            ], 500);
+                'message' => $result['error'],
+                'details' => $result['body'],
+            ], $result['status']);
         }
+
+        return response()->json([
+            'message'    => 'Scrape started successfully.',
+            'run_id'     => $result['run']->id,
+            'jobs_total' => $result['jobs_total'],
+        ], 202);
     }
 
     /**
@@ -129,13 +73,12 @@ class ScrapeController extends Controller
     {
         try {
             Log::info('[ScrapeCallback] Processing incoming callback.', [
-                'run_token' => $request->input('run_token'),
-                'job_token' => $request->input('job_token'),
-                'status'    => $request->input('status'),
+                'run_token'   => $request->input('run_token'),
+                'job_token'   => $request->input('job_token'),
+                'status'      => $request->input('status'),
                 'books_count' => is_array($request->input('books')) ? count($request->input('books')) : 0,
             ]);
 
-            // DEBUG: Log full callback payload
             Log::debug('[ScrapeCallback] Payload bruto recebido.', [
                 'all' => $request->all(),
             ]);
@@ -160,12 +103,6 @@ class ScrapeController extends Controller
     {
         $run = \App\Models\ScrapeRun::with('jobs')->findOrFail($runId);
 
-        // Jobs still 'pending' locally are still running on the Node side
-        // (the DB row only flips to completed/failed via the callback,
-        // which for full_district only fires once, at the very end - see
-        // ScrapeCallbackService). W(hile that's in flight, job_token IS the
-        // BullMQ job id Node assigned it see job_tokens in dispatchRun()),
-        // so we can just ask Node directly for that job's live progress.
         $liveProgress = $run->jobs
             ->reject(fn($job) => in_array($job->status, ['completed', 'failed']))
             ->map(fn($job) => $this->fetchNodeJobProgress($job->job_token))
@@ -173,14 +110,14 @@ class ScrapeController extends Controller
             ->values();
 
         return response()->json([
-            'status'          => $run->status,
-            'progress'        => "{$run->jobs_done} of {$run->jobs_total} completed",
-            'live_progress'   => $liveProgress,
-            'failed'          => $run->jobs_failed,
-            'last_updated'    => $run->updated_at,
-            'books_imported'  => $run->jobs->sum('books_imported'),
-            'books_skipped'   => $run->jobs->sum('books_skipped'),
-            'errors_per_job'  => $run->jobs
+            'status'         => $run->status,
+            'progress'       => "{$run->jobs_done} of {$run->jobs_total} completed",
+            'live_progress'  => $liveProgress,
+            'failed'         => $run->jobs_failed,
+            'last_updated'   => $run->updated_at,
+            'books_imported' => $run->jobs->sum('books_imported'),
+            'books_skipped'  => $run->jobs->sum('books_skipped'),
+            'errors_per_job' => $run->jobs
                 ->filter(fn($job) => !empty($job->import_errors))
                 ->map(fn($job) => [
                     'job_token' => $job->job_token,
@@ -190,15 +127,6 @@ class ScrapeController extends Controller
         ]);
     }
 
-    /**
-     * Best-effort lookup of a still-running job's live BullMQ progress
-     * (0-100), reported by ScraperJob.perform() via job.updateProgress()
-     * as each school in the batch finishes. monitor() is likely polled
-     * often by a frontend, so this must never let a slow or unreachable
-     * Node service hang or break the response - on any failure it just
-     * returns null and the caller falls back to the DB's last-known
-     * status.
-     */
     private function fetchNodeJobProgress(string $jobToken): ?array
     {
         try {
