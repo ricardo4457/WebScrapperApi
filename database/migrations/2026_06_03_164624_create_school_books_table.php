@@ -15,6 +15,12 @@ return new class extends Migration
             $table->string('year');
             $table->string('teaching_cycle');
             $table->timestamps();
+
+            // Guarantees a book can never be linked twice 
+            $table->unique(
+                ['school_id', 'book_id', 'year', 'teaching_cycle'],
+                'school_books_unique_link'
+            );
         });
     }
 

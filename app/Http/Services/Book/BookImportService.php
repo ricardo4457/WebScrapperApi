@@ -5,6 +5,7 @@ namespace App\Http\Services\Book;
 use App\Models\Book;
 use App\Models\School;
 use App\Models\SchoolBook;
+use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Validator;
@@ -17,12 +18,18 @@ class BookImportService
     ) {}
 
     /**
-     * Imports scraped books into the database.
+     * Imports scraped books into the database and reconciles each school's
+     * book list against the scraped list, treating the payload as the
+     * source of truth for the (school, year, teaching_cycle) scope it
+     * covers: existing links no longer present are removed, missing ones
+     * are added, and books are never duplicated (reused via
+     * findOrCreateBook()).
      */
     public function import(array $books): array
     {
         $report = [
             'imported' => 0,
+            'removed'  => 0,
             'skipped'  => 0,
             'errors'   => [],
         ];
@@ -44,9 +51,7 @@ class BookImportService
 
                 $school = $this->findOrCreateSchool($entry['school']);
 
-                foreach ($entry['items'] as $item) {
-                    $this->importItem($school, $item, $report);
-                }
+                $this->syncSchoolBooks($school, $entry['items'] ?? [], $report);
             } catch (Throwable $e) {
                 Log::error('[BookImportService] Error processing school batch: ' . $e->getMessage(), [
                     'school' => $entry['school'] ?? 'Unknown',
@@ -64,11 +69,13 @@ class BookImportService
     }
 
     /**
-     * Imports a book for the given school.
+     * Reconciles a school's books against the scraped list.
      */
-    protected function importItem(School $school, array $item, array &$report): void
+    protected function syncSchoolBooks(School $school, array $items, array &$report): void
     {
-        try {
+        $scopes = [];
+
+        foreach ($items as $item) {
             if (empty($item['title'])) {
                 Log::warning('[BookImportService] Skipping item without title.', ['school' => $school->name, 'item' => $item]);
                 $report['skipped']++;
@@ -77,30 +84,107 @@ class BookImportService
                     'item'   => null,
                     'reason' => 'Missing book title.',
                 ];
-                return;
+                continue;
             }
 
-            $this->validateItem($item);
+            try {
+                $this->validateItem($item);
+            } catch (Throwable $e) {
+                Log::error('[BookImportService] Error validating item: ' . $e->getMessage(), [
+                    'school' => $school->name,
+                    'item'   => $item,
+                ]);
+                $report['skipped']++;
+                $report['errors'][] = [
+                    'school' => $school->name,
+                    'item'   => $item['title'] ?? null,
+                    'reason' => $e->getMessage(),
+                ];
+                continue;
+            }
 
-            // Keep the book and school link in sync.
-            DB::transaction(function () use ($school, $item) {
-                $book = $this->findOrCreateBook($item);
-                $this->attachBookToSchool($school->id, $book, $item);
-            });
+            $scopeKey = $item['year'] . '|' . $item['teaching_cycle'];
 
-            $report['imported']++;
-        } catch (Throwable $e) {
-            Log::error('[BookImportService] Error importing item: ' . $e->getMessage(), [
-                'school' => $school->name,
-                'item'   => $item,
-            ]);
-            $report['skipped']++;
-            $report['errors'][] = [
-                'school' => $school->name,
-                'item'   => $item['title'] ?? null,
-                'reason' => $e->getMessage(),
-            ];
+            $scopes[$scopeKey]['year'] ??= $item['year'];
+            $scopes[$scopeKey]['teaching_cycle'] ??= $item['teaching_cycle'];
+            $scopes[$scopeKey]['items'][] = $item;
         }
+
+        foreach ($scopes as $scope) {
+            $this->syncScope($school, $scope['year'], $scope['teaching_cycle'], $scope['items'], $report);
+        }
+    }
+
+    /**
+     * Synchronizes the books for a specific school, year and teaching cycle.
+     * Reuses existing books, creates new ones when necessary and updates
+     * the relationships atomically.
+     */
+
+    protected function syncScope(School $school, string $year, string $cycle, array $items, array &$report): void
+    {
+        DB::transaction(function () use ($school, $year, $cycle, $items, &$report) {
+            $incomingBookIds = new Collection();
+
+            foreach ($items as $item) {
+                try {
+                    $book = $this->findOrCreateBook($item);
+                    $incomingBookIds->push($book->id);
+                    $report['imported']++;
+                } catch (Throwable $e) {
+                    Log::error('[BookImportService] Error importing item: ' . $e->getMessage(), [
+                        'school' => $school->name,
+                        'item'   => $item,
+                    ]);
+                    $report['skipped']++;
+                    $report['errors'][] = [
+                        'school' => $school->name,
+                        'item'   => $item['title'] ?? null,
+                        'reason' => $e->getMessage(),
+                    ];
+                }
+            }
+
+            $incomingBookIds = $incomingBookIds->unique()->values();
+
+            $currentLinksQuery = SchoolBook::query()
+                ->where('school_id', $school->id)
+                ->where('year', $year)
+                ->where('teaching_cycle', $cycle);
+
+            $existingBookIds = (clone $currentLinksQuery)->pluck('book_id');
+
+            $toRemove = $existingBookIds->diff($incomingBookIds);
+            $toAdd = $incomingBookIds->diff($existingBookIds);
+
+            if ($toRemove->isNotEmpty()) {
+                (clone $currentLinksQuery)->whereIn('book_id', $toRemove)->delete();
+
+                $report['removed'] += $toRemove->count();
+
+                Log::info('[BookImportService] Removed stale school-book links.', [
+                    'school'         => $school->name,
+                    'year'           => $year,
+                    'teaching_cycle' => $cycle,
+                    'book_ids'       => $toRemove->values()->all(),
+                ]);
+            }
+
+            if ($toAdd->isNotEmpty()) {
+                $now = now();
+
+                SchoolBook::insert(
+                    $toAdd->map(fn(int $bookId) => [
+                        'school_id'      => $school->id,
+                        'book_id'        => $bookId,
+                        'year'           => $year,
+                        'teaching_cycle' => $cycle,
+                        'created_at'     => $now,
+                        'updated_at'     => $now,
+                    ])->all()
+                );
+            }
+        });
     }
 
     /**
@@ -123,7 +207,6 @@ class BookImportService
             'publisher'      => ['required', 'string'],
             'type'           => ['required', 'string'],
             'price'          => ['required', 'numeric'],
-
             'year'           => ['required', 'string'],
             'teaching_cycle' => ['required', 'string'],
         ])->validate();
@@ -132,7 +215,6 @@ class BookImportService
     /**
      * Finds or creates a school.
      */
-
     protected function findOrCreateSchool(array $school): School
     {
         return School::firstOrCreate(
@@ -145,9 +227,8 @@ class BookImportService
     }
 
     /**
-     * Finds or creates a book and updates its price history.
+     * Finds or creates a book
      */
-
     protected function findOrCreateBook(array $item): Book
     {
         $book = Book::firstOrCreate(
@@ -167,22 +248,5 @@ class BookImportService
         $this->priceHistory->recordIfChanged($book, $item['price']);
 
         return $book;
-    }
-
-    /**
-     * Links a book to a school.
-     */
-
-    protected function attachBookToSchool(int $schoolId, Book $book, array $item): void
-    {
-        SchoolBook::updateOrCreate(
-            [
-                'school_id'      => $schoolId,
-                'book_id'        => $book->id,
-                'year'           => $item['year'] ?? null,
-                'teaching_cycle' => $item['teaching_cycle'] ?? null,
-            ],
-            []
-        );
     }
 }
