@@ -9,7 +9,11 @@ class ScrapeCallbackRequest extends FormRequest
 {
     /**
      * Determine if the user is authorized to make this request.
-     * Only allow payloads with a valid, active transaction token.
+     * Only allow payloads with a token that belongs to a known run.
+     * NOTE: whether the run is still pending/running is a business-logic
+     * concern, not an authorization one — it's checked in the controller
+     * so a late/duplicate callback gets a normal JSON response instead of
+     * a 403 AccessDeniedHttpException.
      */
     public function authorize(): bool
     {
@@ -19,10 +23,7 @@ class ScrapeCallbackRequest extends FormRequest
             return false;
         }
 
-        // Validate that this token exists and belongs to a run that isn't already finished
-        return ScrapeRun::where('token', $runToken)
-            ->whereIn('status', ['pending', 'running'])
-            ->exists();
+        return ScrapeRun::where('token', $runToken)->exists();
     }
 
     /**

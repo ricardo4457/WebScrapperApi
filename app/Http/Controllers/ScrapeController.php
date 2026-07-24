@@ -83,6 +83,19 @@ class ScrapeController extends Controller
                 'all' => $request->all(),
             ]);
 
+            $run = \App\Models\ScrapeRun::where('token', $request->input('run_token'))->first();
+
+            if ($run && !in_array($run->status, ['pending', 'running'])) {
+                Log::info('[ScrapeCallback] Late/duplicate callback for a run that is no longer active.', [
+                    'run_token'  => $request->input('run_token'),
+                    'run_status' => $run->status,
+                ]);
+
+                return response()->json([
+                    'message' => 'Run already finished; callback ignored.',
+                ], 200);
+            }
+
             $this->callbacks->process($request->validated());
 
             return response()->json([
