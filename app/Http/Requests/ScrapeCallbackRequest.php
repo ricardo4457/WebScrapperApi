@@ -34,7 +34,8 @@ class ScrapeCallbackRequest extends FormRequest
         return [
             'run_token' => ['required', 'string'],
             'job_token' => ['required', 'string'],
-            'status'    => ['required', 'string', 'in:completed,failed'],
+            'status'    => ['required', 'string', 'in:completed,failed,partial'],
+            'final'     => ['nullable', 'boolean'],
             'books'     => ['nullable', 'array'],
             'error'     => ['nullable', 'string'],
         ];
