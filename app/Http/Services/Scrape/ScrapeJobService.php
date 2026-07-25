@@ -72,45 +72,70 @@ class ScrapeJobService
 
     /**
      * Adds one partial batch's import report to the job's running totals.
+     *
+
      */
-    public function accumulateProgress(ScrapeRunJob $job, array $report): void
+    public function accumulateProgress(ScrapeRunJob $job, array $report, int $attempt): void
     {
-        $errors = $job->import_errors ?? [];
+        if ($attempt < $job->last_attempt_seen) {
+            return;
+        }
+
+        $isNewAttempt = $attempt > $job->last_attempt_seen;
+
+        $errors = $isNewAttempt ? [] : ($job->import_errors ?? []);
         if (!empty($report['errors'])) {
             $errors = [...$errors, ...$report['errors']];
         }
 
         $job->update([
-            'books_imported' => $job->books_imported + ($report['imported'] ?? 0),
-            'books_skipped'  => $job->books_skipped + ($report['skipped'] ?? 0),
-            'import_errors'  => $errors ?: null,
-            'reported_at'    => now(),
+            'books_imported'    => ($isNewAttempt ? 0 : $job->books_imported) + ($report['imported'] ?? 0),
+            'books_skipped'     => ($isNewAttempt ? 0 : $job->books_skipped) + ($report['skipped'] ?? 0),
+            'import_errors'     => $errors ?: null,
+            'last_attempt_seen' => $attempt,
+            'reported_at'       => now(),
         ]);
     }
 
     /**
      * Mark job as completed.
+     *
+     * Ignored if attempt is lower than the last attempt already recorded
      */
-    public function complete(ScrapeRunJob $job, array $scrapeErrors = []): void
+    public function complete(ScrapeRunJob $job, array $scrapeErrors = [], int $attempt = 0): bool
     {
+        if ($attempt < $job->last_attempt_seen) {
+            return false;
+        }
+
         $job->update([
-            'status'        => 'completed',
-            'reported_at'   => now(),
-            'import_errors' => $this->mergeScrapeErrors($job, $scrapeErrors),
+            'status'            => 'completed',
+            'reported_at'       => now(),
+            'last_attempt_seen' => $attempt,
+            'import_errors'     => $this->mergeScrapeErrors($job, $scrapeErrors),
         ]);
+
+        return true;
     }
 
     /**
      * Mark job as failed.
      */
-    public function fail(ScrapeRunJob $job, ?string $error = null, array $scrapeErrors = []): void
+    public function fail(ScrapeRunJob $job, ?string $error = null, array $scrapeErrors = [], int $attempt = 0): bool
     {
+        if ($attempt < $job->last_attempt_seen) {
+            return false;
+        }
+
         $job->update([
-            'status'        => 'failed',
-            'error_message' => $error,
-            'reported_at'   => now(),
-            'import_errors' => $this->mergeScrapeErrors($job, $scrapeErrors),
+            'status'            => 'failed',
+            'error_message'     => $error,
+            'reported_at'       => now(),
+            'last_attempt_seen' => $attempt,
+            'import_errors'     => $this->mergeScrapeErrors($job, $scrapeErrors),
         ]);
+
+        return true;
     }
 
     /**
