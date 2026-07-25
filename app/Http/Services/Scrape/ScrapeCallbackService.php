@@ -19,7 +19,11 @@ class ScrapeCallbackService
     ) {}
 
     /**
-     * Process incoming scraper callback.
+     * Handles streamed callbacks from the scraper worker.
+     *
+     * Partial callbacks import books and update progress.
+     * The final callback completes the job and, once all jobs finish,
+     * finalizes the scrape run.
      */
     public function process(array $validated): void
     {
@@ -28,6 +32,7 @@ class ScrapeCallbackService
             'run_token' => $validated['run_token'] ?? 'missing',
             'job_token' => $validated['job_token'] ?? 'missing',
             'status'    => $validated['status'] ?? 'missing',
+            'final'     => $validated['final'] ?? false,
             'books_count' => isset($validated['books']) ? count($validated['books']) : 0,
         ]);
 
@@ -51,38 +56,71 @@ class ScrapeCallbackService
                 return;
             }
 
-            if ($validated['status'] === 'failed') {
-                Log::error('[ScrapeCallback] Job reported failure.', [
-                    'job_id' => $job->id,
-                    'error'  => $validated['error'] ?? 'No error message provided'
-                ]);
-                $this->jobs->fail($job, $validated['error'] ?? null);
-                $this->runs->incrementFailed($run);
-            } else {
-                Log::info('[ScrapeCallback] Importing books for job.', ['job_id' => $job->id]);
+            $isFinal = (bool) ($validated['final'] ?? false);
 
-                // Debug incoming payload structure.
-                Log::debug('[ScrapeCallback] Books payload structure:', ['first_entry' => $validated['books'][0] ?? 'empty']);
-
-                $report = $this->books->import($validated['books'] ?? []);
-
-                Log::info('[ScrapeCallback] Import report.', [
-                    'job_id'   => $job->id,
-                    'imported' => $report['imported'],
-                    'skipped'  => $report['skipped'],
-                    'errors'   => $report['errors'],
-                ]);
-
-                if ($report['imported'] === 0 && $report['skipped'] > 0) {
-                    $this->jobs->fail($job, 'No books were imported.');
-                    $this->runs->incrementFailed($run);
-                } else {
-                    $this->jobs->complete($job);
-                    $this->runs->incrementCompleted($run);
-                }
+            if (!$isFinal) {
+                $this->processPartialBatch($job, $validated);
+                return;
             }
 
-            $this->runs->finishIfComplete($run);
+            $this->processFinal($run, $job, $validated);
         });
+    }
+
+    /**
+     * Imports one partial batch's books and accumulates progress on the job.
+     */
+    private function processPartialBatch($job, array $validated): void
+    {
+        $this->jobs->markRunning($job);
+
+        Log::info('[ScrapeCallback] Importing partial batch for job.', ['job_id' => $job->id]);
+        Log::debug('[ScrapeCallback] Batch payload structure:', ['first_entry' => $validated['books'][0] ?? 'empty']);
+
+        $report = $this->books->import($validated['books'] ?? []);
+        $this->jobs->accumulateProgress($job, $report);
+
+        Log::info('[ScrapeCallback] Partial batch import report.', [
+            'job_id'   => $job->id,
+            'imported' => $report['imported'],
+            'skipped'  => $report['skipped'],
+        ]);
+    }
+
+    /**
+     * Finalizes the job 
+     */
+    private function processFinal(ScrapeRun $run, $job, array $validated): void
+    {
+        $scrapeErrors = $validated['books'] ?? [];
+
+        if ($validated['status'] === 'failed') {
+            Log::error('[ScrapeCallback] Job reported failure.', [
+                'job_id' => $job->id,
+                'error'  => $validated['error'] ?? 'No error message provided',
+            ]);
+            $this->jobs->fail($job, $validated['error'] ?? null, $scrapeErrors);
+            $this->runs->incrementFailed($run);
+        } else {
+            $job->refresh();
+
+            if ($job->books_imported === 0 && $job->books_skipped > 0) {
+                $this->jobs->fail($job, 'No books were imported.', $scrapeErrors);
+                $this->runs->incrementFailed($run);
+            } else {
+                $this->jobs->complete($job, $scrapeErrors);
+                $this->runs->incrementCompleted($run);
+            }
+        }
+
+        Log::info('[ScrapeCallback] Job finalized.', [
+            'job_id'         => $job->id,
+            'status'         => $job->fresh()->status,
+            'books_imported' => $job->books_imported,
+            'books_skipped'  => $job->books_skipped,
+            'scrape_errors'  => count($scrapeErrors),
+        ]);
+
+        $this->runs->finishIfComplete($run);
     }
 }
