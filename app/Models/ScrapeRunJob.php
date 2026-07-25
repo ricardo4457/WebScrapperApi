@@ -17,6 +17,7 @@ class ScrapeRunJob extends Model
         'books_imported',
         'books_skipped',
         'import_errors',
+        'last_attempt_seen',
     ];
 
     protected $casts = [

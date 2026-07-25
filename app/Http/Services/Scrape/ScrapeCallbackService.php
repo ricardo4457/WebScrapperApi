@@ -78,7 +78,7 @@ class ScrapeCallbackService
         Log::debug('[ScrapeCallback] Batch payload structure:', ['first_entry' => $validated['books'][0] ?? 'empty']);
 
         $report = $this->books->import($validated['books'] ?? []);
-        $this->jobs->accumulateProgress($job, $report);
+        $this->jobs->accumulateProgress($job, $report, (int) $validated['attempt']);
 
         Log::info('[ScrapeCallback] Partial batch import report.', [
             'job_id'   => $job->id,
@@ -88,29 +88,45 @@ class ScrapeCallbackService
     }
 
     /**
-     * Finalizes the job 
+     * Finalizes the job
      */
     private function processFinal(ScrapeRun $run, $job, array $validated): void
     {
         $scrapeErrors = $validated['books'] ?? [];
+        $attempt = (int) $validated['attempt'];
 
         if ($validated['status'] === 'failed') {
             Log::error('[ScrapeCallback] Job reported failure.', [
                 'job_id' => $job->id,
                 'error'  => $validated['error'] ?? 'No error message provided',
             ]);
-            $this->jobs->fail($job, $validated['error'] ?? null, $scrapeErrors);
-            $this->runs->incrementFailed($run);
+            $applied = $this->jobs->fail($job, $validated['error'] ?? null, $scrapeErrors, $attempt);
+            if ($applied) {
+                $this->runs->incrementFailed($run);
+            }
         } else {
             $job->refresh();
 
             if ($job->books_imported === 0 && $job->books_skipped > 0) {
-                $this->jobs->fail($job, 'No books were imported.', $scrapeErrors);
-                $this->runs->incrementFailed($run);
+                $applied = $this->jobs->fail($job, 'No books were imported.', $scrapeErrors, $attempt);
+                if ($applied) {
+                    $this->runs->incrementFailed($run);
+                }
             } else {
-                $this->jobs->complete($job, $scrapeErrors);
-                $this->runs->incrementCompleted($run);
+                $applied = $this->jobs->complete($job, $scrapeErrors, $attempt);
+                if ($applied) {
+                    $this->runs->incrementCompleted($run);
+                }
             }
+        }
+
+        // A stale final signal 
+        if (!$applied) {
+            Log::info('[ScrapeCallback] Stale final signal ignored (superseded by a newer attempt).', [
+                'job_id'  => $job->id,
+                'attempt' => $attempt,
+            ]);
+            return;
         }
 
         Log::info('[ScrapeCallback] Job finalized.', [
