@@ -56,34 +56,83 @@ class ScrapeJobService
     }
 
     /**
+     * Transitions a job from 'pending' to 'running' on its first partial callback.
+     */
+    public function markRunning(ScrapeRunJob $job): void
+    {
+        if ($job->status !== 'pending') {
+            return;
+        }
+
+        $job->update([
+            'status'      => 'running',
+            'reported_at' => now(),
+        ]);
+    }
+
+    /**
+     * Adds one partial batch's import report to the job's running totals.
+     */
+    public function accumulateProgress(ScrapeRunJob $job, array $report): void
+    {
+        $errors = $job->import_errors ?? [];
+        if (!empty($report['errors'])) {
+            $errors = [...$errors, ...$report['errors']];
+        }
+
+        $job->update([
+            'books_imported' => $job->books_imported + ($report['imported'] ?? 0),
+            'books_skipped'  => $job->books_skipped + ($report['skipped'] ?? 0),
+            'import_errors'  => $errors ?: null,
+            'reported_at'    => now(),
+        ]);
+    }
+
+    /**
      * Mark job as completed.
      */
-    public function complete(ScrapeRunJob $job, array $report = []): void
+    public function complete(ScrapeRunJob $job, array $scrapeErrors = []): void
     {
         $job->update([
-            'status'         => 'completed',
-            'reported_at'    => now(),
-            'books_imported' => $report['imported'] ?? 0,
-            'books_skipped'  => $report['skipped'] ?? 0,
-            'import_errors'  => $report['errors'] ?? null,
+            'status'        => 'completed',
+            'reported_at'   => now(),
+            'import_errors' => $this->mergeScrapeErrors($job, $scrapeErrors),
         ]);
     }
 
     /**
      * Mark job as failed.
      */
-    public function fail(ScrapeRunJob $job, ?string $error = null): void
+    public function fail(ScrapeRunJob $job, ?string $error = null, array $scrapeErrors = []): void
     {
         $job->update([
             'status'        => 'failed',
             'error_message' => $error,
             'reported_at'   => now(),
+            'import_errors' => $this->mergeScrapeErrors($job, $scrapeErrors),
         ]);
     }
 
     /**
-     * Check if the job has already reached a terminal state (completed or failed).
-     * Useful to prevent reprocessing retried callback webhooks.
+     * Appends per-school scrape failures
+     */
+    private function mergeScrapeErrors(ScrapeRunJob $job, array $scrapeErrors): ?array
+    {
+        if (empty($scrapeErrors)) {
+            return $job->import_errors ?: null;
+        }
+
+        $formatted = array_map(fn($entry) => [
+            'school' => $entry['school']['name'] ?? null,
+            'item'   => null,
+            'reason' => $entry['error'] ?? 'Unknown scrape error.',
+        ], $scrapeErrors);
+
+        return [...($job->import_errors ?? []), ...$formatted];
+    }
+
+    /**
+     * Check if the job has already reached a terminal state.
      */
     public function isFinished(ScrapeRunJob $job): bool
     {
