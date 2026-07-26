@@ -7,10 +7,7 @@ use Illuminate\Foundation\Http\FormRequest;
 /**
  * Validates a full-district scrape request.
  *
- * Kept separate from StartScrapeRequest because full_district now takes
- * a different, smaller shape: { year, district, teaching_cycle } only.
- * No city/school/schools — the Node FullDistrictStrategy discovers every
- * city and school in the district itself, live, on the wook.pt combos.
+
  */
 class StartDistrictScrapeRequest extends FormRequest
 {
