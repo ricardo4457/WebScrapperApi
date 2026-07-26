@@ -19,6 +19,12 @@ Route::post('/book-scraper/run', [ScrapeController::class, 'runScrape'])
 Route::post('/book-scraper/run/district', [ScrapeController::class, 'runDistrictScrape'])
     ->middleware(['throttle:10,1']);
 
+// Full-city run: like full-district, but scoped to one city/concelho
+// ({ year, district, city, teaching_cycle }) since FullCityStrategy still
+// needs the district to reach the city step in the site's cascading combo.
+Route::post('/book-scraper/run/city', [ScrapeController::class, 'runCityScrape'])
+    ->middleware(['throttle:10,1']);
+
 Route::get('/book-scraper/status/{runId}', [ScrapeController::class, 'monitor'])
     ->name('book-scraper.status');
 

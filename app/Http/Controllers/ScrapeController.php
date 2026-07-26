@@ -3,6 +3,7 @@
 namespace App\Http\Controllers;
 
 use App\Http\Requests\ScrapeCallbackRequest;
+use App\Http\Requests\StartCityScrapeRequest;
 use App\Http\Requests\StartDistrictScrapeRequest;
 use App\Http\Requests\StartScrapeRequest;
 use App\Http\Services\Scrape\ScrapeCallbackService;
@@ -39,6 +40,17 @@ class ScrapeController extends Controller
         return $this->dispatchRun([
             ...$request->validated(),
             'strategy' => 'full_district',
+        ]);
+    }
+
+    /**
+     * Trigger a full-city (concelho) scrape run.
+     */
+    public function runCityScrape(StartCityScrapeRequest $request): JsonResponse
+    {
+        return $this->dispatchRun([
+            ...$request->validated(),
+            'strategy' => 'full_city',
         ]);
     }
 
