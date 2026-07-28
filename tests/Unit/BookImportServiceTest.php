@@ -5,27 +5,31 @@ use App\Models\Book;
 use App\Models\SchoolBook;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 
-uses(RefreshDatabase::class);
+uses(Tests\TestCase::class, RefreshDatabase::class);
 
-function bookItem(string $title, array $overrides = []): array
-{
-    return array_merge([
-        'title'          => $title,
-        'publisher'      => 'Editora X',
-        'type'           => 'manual',
-        'price'          => 10.0,
-        'year'           => '2026',
-        'teaching_cycle' => '3ciclo',
-    ], $overrides);
+if (! function_exists('bookItem')) {
+    function bookItem(string $title, array $overrides = []): array
+    {
+        return array_merge([
+            'title'          => $title,
+            'publisher'      => 'Editora X',
+            'type'           => 'manual',
+            'price'          => 10.0,
+            'year'           => '2026',
+            'teaching_cycle' => '3ciclo',
+        ], $overrides);
+    }
 }
 
-function schoolPayload(): array
-{
-    return [
-        'name'     => 'Escola Teste',
-        'district' => 'Porto',
-        'city'     => 'Porto',
-    ];
+if (! function_exists('schoolPayload')) {
+    function schoolPayload(): array
+    {
+        return [
+            'name'     => 'Escola Teste',
+            'district' => 'Porto',
+            'city'     => 'Porto',
+        ];
+    }
 }
 
 it('findOrCreateBook não duplica livro com o mesmo (title, publisher)', function () {
