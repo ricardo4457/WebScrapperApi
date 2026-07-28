@@ -4,7 +4,7 @@ namespace App\Http\Controllers;
 
 use App\Http\Requests\BookSearchRequest;
 use App\Http\Services\Book\BookSearchService;
-use App\Http\Services\Scrape\ScrapeDispatchService;
+use App\Models\Book;
 use App\Models\School;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -13,140 +13,33 @@ class BookController extends Controller
 {
     public function __construct(
         private BookSearchService $search,
-        private ScrapeDispatchService $dispatcher,
     ) {}
 
     /**
-     * Searches for books requested by the frontend.
+     * Main frontend endpoint for book searches.
      *
-     * Returns cached data when available. Otherwise, starts a
-     * scraping job and returns its run identifier.
+     * Supported search modes (see BookSearchRequest):
+     * - school: exact school search using district, city, year and teaching cycle
+     * - city: books available in a city
+     * - q: direct search by book title
+     *
+     * Pagination is supported in all modes through the page and per_page
+     * parameters.
+     *
+     * The school mode first checks the local database. If no data is found,
+     * a scraping job is started and the endpoint returns HTTP 202 with a
+     * run identifier. The frontend should poll the scraping status endpoint
+     * and repeat the request after completion.
+     *
+     * The city and q modes are database-only and never trigger scraping.
      */
+
     public function search(BookSearchRequest $request): JsonResponse
     {
         $result = $this->search->search($request->validated());
 
-        if ($result['found']) {
-            return response()->json([
-                'status' => 'found',
-                'school' => $result['school'],
-                'books'  => $result['books'],
-            ]);
-        }
-
-        $scrape = $result['scrape'];
-
-        if (!$scrape['ok']) {
-            return response()->json([
-                'status'  => 'error',
-                'message' => $scrape['error'],
-            ], $scrape['status']);
-        }
-
-        return response()->json([
-            'state'      => 'scraping',
-            'message'    => 'Book data not cached yet, scrape started.',
-            'run_id'     => $scrape['run']->id,
-            'jobs_total' => $scrape['jobs_total'],
-            'status'     => route('book-scraper.status', $scrape['run']->id),
-        ], 202);
-    }
-
-    /**
-     * Returns schools for autocomplete and dropdown lists.
-     *
-     * If no schools are available for the selected district and city,
-     * a discovery scraping job is started.
-     */
-
-    public function schools(Request $request): JsonResponse
-    {
-        $district = $request->input('district');
-        $city = $request->input('city');
-
-        if ($district && $city) {
-            $concelhoHasSchools = School::where('district', $district)
-                ->where('city', $city)
-                ->exists();
-
-            if (!$concelhoHasSchools) {
-                if (!$request->filled('year') || !$request->filled('teaching_cycle')) {
-                    return response()->json([
-                        'status'  => 'error',
-                        'message' => 'No schools cached yet for this concelho. Provide year and teaching_cycle to trigger discovery.',
-                    ], 422);
-                }
-
-                $scrape = $this->dispatcher->dispatch([
-                    'strategy'       => 'full_city',
-                    'district'       => $district,
-                    'city'           => $city,
-                    'year'           => $request->input('year'),
-                    'teaching_cycle' => $request->input('teaching_cycle'),
-                ]);
-
-                if (!$scrape['ok']) {
-                    return response()->json([
-                        'status'  => 'error',
-                        'message' => $scrape['error'],
-                    ], $scrape['status']);
-                }
-
-                return response()->json([
-                    'state'      => 'scraping',
-                    'message'    => 'No schools cached yet for this concelho, discovery scrape started.',
-                    'run_id'     => $scrape['run']->id,
-                    'jobs_total' => $scrape['jobs_total'],
-                    'status'     => route('book-scraper.status', $scrape['run']->id),
-                ], 202);
-            }
-        }
-
-        $schools = School::query()
-            ->when($district, fn($q) => $q->where('district', $district))
-            ->when($city, fn($q) => $q->where('city', $city))
-            ->when($request->filled('search'), fn($q) => $q->where('name', 'like', '%' . $request->input('search') . '%'))
-            ->orderBy('name')
-            ->limit(50)
-            ->get(['id', 'district', 'city', 'name']);
-
-        return response()->json($schools);
-    }
-
-    /**
-     * Returns available districts or cities.
-     *
-     * Data is retrieved from the local database. If no cities are found
-     * for a district, a discovery scraping job is started.
-     */
-
-    public function locations(Request $request): JsonResponse
-    {
-        if ($request->filled('district')) {
-            $district = $request->input('district');
-
-            $cities = School::where('district', $district)
-                ->distinct()
-                ->orderBy('city')
-                ->pluck('city');
-
-            if ($cities->isNotEmpty()) {
-                return response()->json(['cities' => $cities]);
-            }
-
-            if (!$request->filled('year') || !$request->filled('teaching_cycle')) {
-                return response()->json([
-                    'status'  => 'error',
-                    'message' => 'No cities cached yet for this district. Provide year and teaching_cycle to trigger discovery.',
-                ], 422);
-            }
-
-            $scrape = $this->dispatcher->dispatch([
-                'strategy'       => 'full_district',
-                'district'       => $district,
-                'year'           => $request->input('year'),
-                'teaching_cycle' => $request->input('teaching_cycle'),
-            ]);
+        if ($result['mode'] === 'school' && !$result['found']) {
+            $scrape = $result['scrape'];
 
             if (!$scrape['ok']) {
                 return response()->json([
@@ -156,12 +49,83 @@ class BookController extends Controller
             }
 
             return response()->json([
-                'state'      => 'scraping',
-                'message'    => 'No cities cached yet for this district, discovery scrape started.',
+                'status'     => 'scraping',
+                'message'    => 'Book data not cached yet, scrape started.',
                 'run_id'     => $scrape['run']->id,
                 'jobs_total' => $scrape['jobs_total'],
-                'status'     => route('book-scraper.status', $scrape['run']->id),
             ], 202);
+        }
+
+        return response()->json([
+            'status' => 'found',
+            'mode'   => $result['mode'],
+            'school' => $result['school'],
+            'books'  => $result['books'],
+        ]);
+    }
+
+    /**
+     * GET /api/books/{book}/price-history
+     *
+     * Returns the full price history for a single book, ordered from newest
+     * to oldest.
+     *
+     * No pagination is applied to this endpoint.
+     */
+
+    public function priceHistory(Book $book): JsonResponse
+    {
+        $history = $book->priceHistory()
+            ->orderByDesc('recorded_at')
+            ->get();
+
+        return response()->json([
+            'book'    => $book->only(['id', 'title', 'publisher', 'price']),
+            'history' => $history,
+        ]);
+    }
+
+    /**
+     * GET /api/schools?district=&city=&search=
+     *
+     * Returns schools from the local database for autocomplete and dropdown
+     * components.
+     *
+     * This endpoint is read-only and never triggers scraping.
+     */
+
+    public function schools(Request $request): JsonResponse
+    {
+        $schools = School::query()
+            ->when($request->filled('district'), fn($q) => $q->where('district', $request->input('district')))
+            ->when($request->filled('city'), fn($q) => $q->where('city', $request->input('city')))
+            ->when($request->filled('search'), fn($q) => $q->where('name', 'like', '%' . $request->input('search') . '%'))
+            ->orderBy('name')
+            ->limit(50)
+            ->get(['id', 'district', 'city', 'name']);
+
+        return response()->json($schools);
+    }
+
+    /**
+     * GET /api/locations?district=
+     *
+     * Returns distinct districts, or the cities belonging to a selected
+     * district, for cascading location selectors.
+     *
+     * Results only include locations that have already been scraped and
+     * stored in the database.
+     */
+
+    public function locations(Request $request): JsonResponse
+    {
+        if ($request->filled('district')) {
+            $cities = School::where('district', $request->input('district'))
+                ->distinct()
+                ->orderBy('city')
+                ->pluck('city');
+
+            return response()->json(['cities' => $cities]);
         }
 
         $districts = School::query()

@@ -3,42 +3,65 @@
 namespace App\Http\Services\Book;
 
 use App\Http\Services\Scrape\ScrapeDispatchService;
+use App\Models\Book;
 use App\Models\School;
-use Illuminate\Database\Eloquent\Collection;
+use Illuminate\Contracts\Pagination\LengthAwarePaginator;
 
 class BookSearchService
 {
+    private const DEFAULT_PER_PAGE = 15;
+
     public function __construct(
         private ScrapeDispatchService $dispatcher,
     ) {}
 
     /**
-     * Look up the book list for a school/year/(teaching_cycle) scope.
+     * Searches books using one of three mutually exclusive modes:
      *
-     * Matches the school by `name` only — deliberately not filtering by
-     * district/city too, since BookImportService::findOrCreateSchool()
-     * already treats `name` as the sole identity key when importing
-     * scraped data (firstOrCreate(['name' => ...], [...])). Filtering on
-     * district/city here as well could cause false negatives (and a
-     * pointless re-scrape) if either was recorded slightly differently
-     * on first import than what the frontend sends now.
+     * - school: exact school search with scraping fallback
+     * - city: books already scraped for schools in a city
+     * - title: direct search by book title
      *
-     * @return array{
-     *   found: bool,
-     *   school: ?School,
-     *   books: Collection,
-     *   scrape: ?array
-     * }
+     * Database results are returned as paginated collections.
+     *
      */
+
     public function search(array $params): array
+    {
+        if (!empty($params['school'])) {
+            return $this->searchBySchool($params);
+        }
+
+        if (!empty($params['city'])) {
+            return $this->searchByCity($params);
+        }
+
+        return $this->searchByTitle($params);
+    }
+
+    /**
+     * Searches books for a specific school.
+     *
+     * The school is matched by name only to stay consistent with the
+     * import process, which treats the school name as the unique key.
+     * If no books are found for the requested year and teaching cycle,
+     * a live scraping job is started.
+     */
+
+    private function searchBySchool(array $params): array
     {
         $school = School::where('name', $params['school'])->first();
 
         if ($school) {
-            $books = $this->booksFor($school, $params['year'], $params['teaching_cycle'] ?? null);
+            $books = $school->books()
+                ->wherePivot('year', $params['year'])
+                ->when($params['teaching_cycle'] ?? null, fn($q) => $q->wherePivot('teaching_cycle', $params['teaching_cycle']))
+                ->orderBy('price')
+                ->paginate($this->perPage($params));
 
-            if ($books->isNotEmpty()) {
+            if ($books->total() > 0) {
                 return [
+                    'mode'   => 'school',
                     'found'  => true,
                     'school' => $school,
                     'books'  => $books,
@@ -59,18 +82,85 @@ class BookSearchService
         ]);
 
         return [
+            'mode'   => 'school',
             'found'  => false,
             'school' => $school,
-            'books'  => new Collection(),
+            'books'  => null,
             'scrape' => $scrape,
         ];
     }
 
-    private function booksFor(School $school, string $year, ?string $cycle): Collection
+    /**
+     * Searches books already scraped for schools in a specific city.
+     *
+     * Results are filtered through the school_books relation and may be
+     * restricted by year and teaching cycle. If no books are found, a
+     * city discovery scrape is started.
+     */
+
+    private function searchByCity(array $params): array
     {
-        return $school->books()
-            ->wherePivot('year', $year)
-            ->when($cycle, fn($q) => $q->wherePivot('teaching_cycle', $cycle))
-            ->get();
+        $books = Book::query()
+            ->whereHas('schoolBooks', function ($query) use ($params) {
+                $query->whereHas('school', fn($q) => $q->where('city', $params['city']))
+                    ->when(!empty($params['year']), fn($q) => $q->where('year', $params['year']))
+                    ->when(!empty($params['teaching_cycle']), fn($q) => $q->where('teaching_cycle', $params['teaching_cycle']));
+            })
+            ->distinct()
+            ->orderBy('price')
+            ->paginate($this->perPage($params));
+
+        if ($books->total() > 0) {
+            return [
+                'mode'   => 'city',
+                'found'  => true,
+                'school' => null,
+                'books'  => $books,
+                'scrape' => null,
+            ];
+        }
+
+        $scrape = $this->dispatcher->dispatch([
+            'strategy'       => 'full_city',
+            'district'       => $params['district'],
+            'city'           => $params['city'],
+            'year'           => $params['year'],
+            'teaching_cycle' => $params['teaching_cycle'],
+        ]);
+
+        return [
+            'mode'   => 'city',
+            'found'  => false,
+            'school' => null,
+            'books'  => null,
+            'scrape' => $scrape,
+        ];
+    }
+
+    /**
+     * Searches books by title across all cached books.
+     *
+     * This mode is database-only and never starts a scraping job.
+     */
+
+    private function searchByTitle(array $params): array
+    {
+        $books = Book::query()
+            ->where('title', 'like', '%' . $params['q'] . '%')
+            ->orderBy('price')
+            ->paginate($this->perPage($params));
+
+        return [
+            'mode'   => 'title',
+            'found'  => true,
+            'school' => null,
+            'books'  => $books,
+            'scrape' => null,
+        ];
+    }
+
+    private function perPage(array $params): int
+    {
+        return (int) ($params['per_page'] ?? self::DEFAULT_PER_PAGE);
     }
 }
