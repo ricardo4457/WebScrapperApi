@@ -5,16 +5,14 @@ use App\Models\ScrapeRun;
 use App\Models\ScrapeRunJob;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 
+
 /**
- * Testes de integração ao endpoint /api/book-scraper/callback.
+ * Integration tests for the /api/book-scraper/callback endpoint.
  *
- * O fluxo atual difere do desenho inicial: o worker Node envia vários
- * callbacks "partial" (lotes de livros, à medida que vão sendo extraídos)
- * e um único callback "final" por job (completed ou failed), cada um
- * identificado por um número de tentativa (attempt), usado para distinguir
- * callbacks de uma tentativa anterior (retry do BullMQ) dos da tentativa
- * atual. A decisão de ignorar callbacks para um run já terminado foi
- * também movida do serviço para o controller.
+ * The worker sends multiple partial callbacks while books are being
+ * extracted and a single final callback when the job finishes. Each
+ * callback includes an attempt number used to ignore callbacks from
+ * previous retry attempts.
  */
 
 function createActiveRun(array $overrides = []): ScrapeRun
@@ -77,8 +75,9 @@ test('callback com run_token inválido devolve 401', function () {
 });
 
 test('callback com run_token de uma execução já terminada passa o middleware, mas é ignorado pelo controller', function () {
-    // O middleware só confirma que o token pertence a um run conhecido;
-    // decidir se esse run ainda está ativo já não é responsabilidade dele.
+    // The middleware only validates the token. The controller decides
+    // whether the associated run is still active.
+    // Request passed the middleware but was ignored by the controller.
     $run = createActiveRun(['status' => 'completed', 'jobs_done' => 1]);
     $job = createJob($run, ['status' => 'completed', 'books_imported' => 3]);
 
@@ -90,7 +89,6 @@ test('callback com run_token de uma execução já terminada passa o middleware,
         'books'     => bookBatch(),
     ]);
 
-    // Passou o middleware (não é 401) mas o controller ignora-o.
     $response->assertStatus(200);
     $response->assertJson(['message' => 'Run already finished; callback ignored.']);
 
@@ -99,7 +97,7 @@ test('callback com run_token de uma execução já terminada passa o middleware,
     expect(Book::count())->toBe(0);
 });
 
-// --- Validação do payload --------------------------------------------------
+// --- Payload validation --------------------------------------------------
 
 test('callback sem o campo status devolve 422', function () {
     $run = createActiveRun();
@@ -160,8 +158,9 @@ test('callback com books num formato inválido devolve 422', function () {
     $response->assertJsonValidationErrors('books');
 });
 
-// --- Lotes parciais (streaming) --------------------------------------------
+// --- Partial batches ----------------------------------------------------
 
+// The run is completed only after the final callback is received.
 test('callback partial importa o lote e marca o job como running', function () {
     $run = createActiveRun();
     $job = createJob($run);
@@ -188,6 +187,8 @@ test('callback partial importa o lote e marca o job como running', function () {
 });
 
 test('lote parcial de uma tentativa antiga (attempt inferior) é ignorado', function () {
+    // The batch belongs to an older attempt and must be ignored.
+
     $run = createActiveRun();
     $job = createJob($run, ['last_attempt_seen' => 2, 'books_imported' => 5]);
 
@@ -207,7 +208,7 @@ test('lote parcial de uma tentativa antiga (attempt inferior) é ignorado', func
     expect(Book::where('title', 'Livro de uma Tentativa Antiga')->count())->toBe(0);
 });
 
-// --- Callback final ---------------------------------------------------------
+// --- Final callback ------------------------------------------------------
 
 test('callback final completed fecha o job e o run quando não há mais jobs pendentes', function () {
     $run = createActiveRun();
@@ -240,11 +241,14 @@ test('callback final completed fecha o job e o run quando não há mais jobs pen
     expect($run->status)->toBe('completed');
 });
 
-// --- Idempotência ------------------------------------------------------------
+// --- Idempotency ---------------------------------------------------------
 
 test('callback final duplicado com o mesmo job_token não reprocessa o job', function () {
-    // jobs_total = 2 para o run não se fechar logo a seguir ao primeiro
-    // callback final, isolando a duplicação do encerramento do run.
+     // Keep another job pending so the run does not finish after the first
+    // callback, isolating the duplicate-callback behavior.
+
+    // If the callback had been processed twice, jobs_done would also have
+    // been incremented twice.
     $run = createActiveRun(['jobs_total' => 2]);
     $job = createJob($run, ['job_token' => 'job-token-duplicado']);
     createJob($run, ['job_token' => 'job-token-em-falta']);
