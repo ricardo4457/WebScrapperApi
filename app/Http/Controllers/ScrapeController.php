@@ -134,14 +134,19 @@ class ScrapeController extends Controller
             ->filter()
             ->values();
 
+        $booksImported = $run->jobs->sum('books_imported');
+        $noResults = $run->status === 'completed' && $booksImported === 0;
+
         return response()->json([
             'status'         => $run->status,
             'progress'       => "{$run->jobs_done} of {$run->jobs_total} completed",
             'live_progress'  => $liveProgress,
             'failed'         => $run->jobs_failed,
             'last_updated'   => $run->updated_at,
-            'books_imported' => $run->jobs->sum('books_imported'),
+            'books_imported' => $booksImported,
             'books_skipped'  => $run->jobs->sum('books_skipped'),
+            'no_results'     => $noResults,
+            'message'        => $noResults ? 'Scrape concluído, mas não foram encontrados livros para esta pesquisa.' : null,
             'errors_per_job' => $run->jobs
                 ->filter(fn($job) => !empty($job->import_errors))
                 ->map(fn($job) => [
