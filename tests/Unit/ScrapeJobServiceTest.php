@@ -6,20 +6,22 @@ use App\Models\ScrapeRunJob;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Str;
 
-uses(RefreshDatabase::class);
+uses(Tests\TestCase::class, RefreshDatabase::class);
 
-function makeScrapeRunJob(array $attrs = []): ScrapeRunJob
-{
-    $run = ScrapeRun::create([
-        'token'  => Str::random(48),
-        'status' => 'pending',
-        'params' => [],
-    ]);
+if (! function_exists('makeScrapeRunJob')) {
+    function makeScrapeRunJob(array $attrs = []): ScrapeRunJob
+    {
+        $run = ScrapeRun::create([
+            'token'  => Str::random(48),
+            'status' => 'pending',
+            'params' => [],
+        ]);
 
-    return $run->jobs()->create(array_merge([
-        'job_token' => Str::random(32),
-        'status'    => 'running',
-    ], $attrs));
+        return $run->jobs()->create(array_merge([
+            'job_token' => Str::random(32),
+            'status'    => 'running',
+        ], $attrs));
+    }
 }
 
 it('accumulateProgress ignora callback de um attempt mais antigo que last_attempt_seen', function () {

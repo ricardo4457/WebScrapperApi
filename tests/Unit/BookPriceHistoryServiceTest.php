@@ -4,16 +4,18 @@ use App\Http\Services\Book\BookPriceHistoryService;
 use App\Models\Book;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 
-uses(RefreshDatabase::class);
+uses(Tests\TestCase::class, RefreshDatabase::class);
 
-function makeBook(float $price = 10.0): Book
-{
-    return Book::create([
-        'title'     => 'Livro Teste',
-        'publisher' => 'Editora X',
-        'price'     => $price,
-        'type'      => 'manual',
-    ]);
+if (! function_exists('makeBook')) {
+    function makeBook(float $price = 10.0): Book
+    {
+        return Book::create([
+            'title'     => 'Livro Teste',
+            'publisher' => 'Editora X',
+            'price'     => $price,
+            'type'      => 'manual',
+        ]);
+    }
 }
 
 it('não cria histórico se o preço não mudou (dentro do PRICE_EPSILON)', function () {

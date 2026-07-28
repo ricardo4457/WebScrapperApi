@@ -5,7 +5,7 @@ use App\Models\ScrapeRun;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Str;
 
-uses(RefreshDatabase::class);
+uses(Tests\TestCase::class, RefreshDatabase::class);
 
 it('finishIfComplete só marca completed/failed quando jobs_done + jobs_failed >= jobs_total', function () {
     $service = new ScrapeRunService();
