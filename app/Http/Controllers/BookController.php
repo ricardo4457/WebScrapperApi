@@ -19,26 +19,37 @@ class BookController extends Controller
      * Main frontend endpoint for book searches.
      *
      * Supported search modes (see BookSearchRequest):
-     * - school: exact school search using district, city, year and teaching cycle
+     * - school: exact school search
      * - city: books available in a city
      * - q: direct search by book title
      *
      * Pagination is supported in all modes through the page and per_page
      * parameters.
      *
-     * The school mode first checks the local database. If no data is found,
-     * a scraping job is started and the endpoint returns HTTP 202 with a
-     * run identifier. The frontend should poll the scraping status endpoint
-     * and repeat the request after completion.
+     * School and city searches first check the local database. If no data
+     * is found, a scraping job is started and the endpoint returns HTTP 202
+     * with a run identifier. The frontend should poll the scraping status
+     * endpoint and repeat the request after completion.
      *
-     * The city and q modes are database-only and never trigger scraping.
+     * District and city may be resolved automatically from existing records.
+     * If the required location information cannot be determined, the endpoint
+     * returns HTTP 422.
+     *
+     * The q mode is database-only and never triggers scraping.
      */
 
     public function search(BookSearchRequest $request): JsonResponse
     {
         $result = $this->search->search($request->validated());
 
-        if ($result['mode'] === 'school' && !$result['found']) {
+        if (in_array($result['mode'], ['school', 'city'], true) && !$result['found']) {
+            if ($result['error']) {
+                return response()->json([
+                    'status'  => 'error',
+                    'message' => $result['error'],
+                ], 422);
+            }
+
             $scrape = $result['scrape'];
 
             if (!$scrape['ok']) {
@@ -64,7 +75,7 @@ class BookController extends Controller
         ]);
     }
 
-    /**
+ /**
      * GET /api/books/{book}/price-history
      *
      * Returns the full price history for a single book, ordered from newest
@@ -85,7 +96,7 @@ class BookController extends Controller
         ]);
     }
 
-    /**
+ /**
      * GET /api/schools?district=&city=&search=
      *
      * Returns schools from the local database for autocomplete and dropdown
@@ -110,13 +121,11 @@ class BookController extends Controller
     /**
      * GET /api/locations?district=
      *
-     * Returns distinct districts, or the cities belonging to a selected
-     * district, for cascading location selectors.
-     *
-     * Results only include locations that have already been scraped and
-     * stored in the database.
+     * Distinct districts (no param), or cities within a district (with
+     * ?district=), for cascading selects. Only reflects what's already
+     * been scraped at least once.
      */
-
+    
     public function locations(Request $request): JsonResponse
     {
         if ($request->filled('district')) {

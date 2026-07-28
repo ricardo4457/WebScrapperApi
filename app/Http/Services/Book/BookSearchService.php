@@ -43,11 +43,12 @@ class BookSearchService
      * Searches books for a specific school.
      *
      * The school is matched by name only to stay consistent with the
-     * import process, which treats the school name as the unique key.
-     * If no books are found for the requested year and teaching cycle,
-     * a live scraping job is started.
+     * import process, which uses the school name as the unique key.
+     * Existing district and city values are reused when available.
+     *
+     * If no cached books are found for the requested year and teaching
+     * cycle, a live scraping job is started.
      */
-
     private function searchBySchool(array $params): array
     {
         $school = School::where('name', $params['school'])->first();
@@ -66,16 +67,31 @@ class BookSearchService
                     'school' => $school,
                     'books'  => $books,
                     'scrape' => null,
+                    'error'  => null,
                 ];
             }
         }
 
-        // Miss: school unknown, or no books cached yet for this exact
-        // (year, teaching_cycle) scope. Trigger a live single-school scrape.
+        // No cached books found for the requested year and teaching cycle.
+        // Resolve the location and start a live single-school scrape.
+        $district = $params['district'] ?? $school?->district;
+        $city = $params['city'] ?? $school?->city;
+
+        if (!$district || !$city) {
+            return [
+                'mode'   => 'school',
+                'found'  => false,
+                'school' => $school,
+                'books'  => null,
+                'scrape' => null,
+                'error'  => 'Escola desconhecida — indica também district e city para poder iniciar o scrape.',
+            ];
+        }
+
         $scrape = $this->dispatcher->dispatch([
             'strategy'       => 'single_school',
-            'district'       => $params['district'],
-            'city'           => $params['city'],
+            'district'       => $district,
+            'city'           => $city,
             'school'         => $params['school'],
             'year'           => $params['year'],
             'teaching_cycle' => $params['teaching_cycle'] ?? null,
@@ -87,15 +103,17 @@ class BookSearchService
             'school' => $school,
             'books'  => null,
             'scrape' => $scrape,
+            'error'  => null,
         ];
     }
 
     /**
      * Searches books already scraped for schools in a specific city.
      *
-     * Results are filtered through the school_books relation and may be
-     * restricted by year and teaching cycle. If no books are found, a
-     * city discovery scrape is started.
+     * Results may be filtered by year and teaching cycle. Existing
+     * district information is reused when available.
+     *
+     * If no cached books are found, a city discovery scrape is started.
      */
 
     private function searchByCity(array $params): array
@@ -117,15 +135,29 @@ class BookSearchService
                 'school' => null,
                 'books'  => $books,
                 'scrape' => null,
+                'error'  => null,
+            ];
+        }
+
+        $district = $params['district'] ?? School::where('city', $params['city'])->value('district');
+
+        if (!$district) {
+            return [
+                'mode'   => 'city',
+                'found'  => false,
+                'school' => null,
+                'books'  => null,
+                'scrape' => null,
+                'error'  => 'Concelho desconhecido — indica também district para poder iniciar o scrape.',
             ];
         }
 
         $scrape = $this->dispatcher->dispatch([
             'strategy'       => 'full_city',
-            'district'       => $params['district'],
+            'district'       => $district,
             'city'           => $params['city'],
             'year'           => $params['year'],
-            'teaching_cycle' => $params['teaching_cycle'],
+            'teaching_cycle' => $params['teaching_cycle'] ?? null,
         ]);
 
         return [
@@ -134,6 +166,7 @@ class BookSearchService
             'school' => null,
             'books'  => null,
             'scrape' => $scrape,
+            'error'  => null,
         ];
     }
 
@@ -142,7 +175,7 @@ class BookSearchService
      *
      * This mode is database-only and never starts a scraping job.
      */
-
+    
     private function searchByTitle(array $params): array
     {
         $books = Book::query()
@@ -156,6 +189,7 @@ class BookSearchService
             'school' => null,
             'books'  => $books,
             'scrape' => null,
+            'error'  => null,
         ];
     }
 
