@@ -67,18 +67,31 @@ class ScrapeCallbackService
         });
     }
 
-    /**
-     * Imports one partial batch's books and accumulates progress on the job.
-     */
+/**
+ * Imports a partial batch and updates the job progress.
+ *
+ * Batches from an older attempt are ignored completely.
+ */
     private function processPartialBatch($job, array $validated): void
     {
+        $attempt = (int) $validated['attempt'];
+
+        if ($attempt < $job->last_attempt_seen) {
+            Log::info('[ScrapeCallback] Stale partial batch ignored (older attempt).', [
+                'job_id'            => $job->id,
+                'attempt'           => $attempt,
+                'last_attempt_seen' => $job->last_attempt_seen,
+            ]);
+            return;
+        }
+
         $this->jobs->markRunning($job);
 
         Log::info('[ScrapeCallback] Importing partial batch for job.', ['job_id' => $job->id]);
         Log::debug('[ScrapeCallback] Batch payload structure:', ['first_entry' => $validated['books'][0] ?? 'empty']);
 
         $report = $this->books->import($validated['books'] ?? []);
-        $this->jobs->accumulateProgress($job, $report, (int) $validated['attempt']);
+        $this->jobs->accumulateProgress($job, $report, $attempt);
 
         Log::info('[ScrapeCallback] Partial batch import report.', [
             'job_id'   => $job->id,
@@ -120,7 +133,7 @@ class ScrapeCallbackService
             }
         }
 
-        // A stale final signal 
+        // A stale final signal
         if (!$applied) {
             Log::info('[ScrapeCallback] Stale final signal ignored (superseded by a newer attempt).', [
                 'job_id'  => $job->id,
