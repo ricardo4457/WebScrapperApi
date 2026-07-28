@@ -30,8 +30,14 @@ Route::get('/book-scraper/status/{runId}', [ScrapeController::class, 'monitor'])
 
 // --- Frontend-facing read endpoints ---
 
+
 // Main search: DB lookup, falls back to a live scrape on a miss (202 + run_id).
+// Supports three modes: school,city,book title. All paginated.
 Route::get('/books/search', [BookController::class, 'search'])
+    ->middleware(['throttle:30,1']);
+
+// Book price history, ordered from newest to oldest. No pagination.
+Route::get('/books/{book}/price-history', [BookController::class, 'priceHistory'])
     ->middleware(['throttle:30,1']);
 
 // Autocomplete/browse over already-scraped schools. Never triggers a scrape.
