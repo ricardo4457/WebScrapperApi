@@ -54,22 +54,27 @@ class BookSearchService
         $school = School::where('name', $params['school'])->first();
 
         if ($school) {
-            $books = $school->books()
-                ->wherePivot('year', $params['year'])
-                ->when($params['teaching_cycle'] ?? null, fn($q) => $q->wherePivot('teaching_cycle', $params['teaching_cycle']))
-                ->orderBy('price')
-                ->paginate($this->perPage($params));
+        $query = $school->books()
+            ->wherePivot('year', $params['year']);
 
-            if ($books->total() > 0) {
-                return [
-                    'mode'   => 'school',
-                    'found'  => true,
-                    'school' => $school,
-                    'books'  => $books,
-                    'scrape' => null,
-                    'error'  => null,
-                ];
-            }
+        if (!empty($params['teaching_cycle'])) {
+            $query->wherePivot('teaching_cycle', $params['teaching_cycle']);
+        }
+
+        $books = $query
+            ->orderBy('price')
+            ->paginate($this->perPage($params));
+
+        if ($books->total() > 0) {
+            return [
+                'mode'   => 'school',
+                'found'  => true,
+                'school' => $school,
+                'books'  => $books,
+                'scrape' => null,
+                'error'  => null,
+            ];
+        }
         }
 
         // No cached books found for the requested year and teaching cycle.
@@ -175,7 +180,7 @@ class BookSearchService
      *
      * This mode is database-only and never starts a scraping job.
      */
-    
+
     private function searchByTitle(array $params): array
     {
         $books = Book::query()
