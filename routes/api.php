@@ -5,43 +5,52 @@ use Illuminate\Support\Facades\Route;
 use App\Http\Controllers\ScrapeController;
 use App\Http\Controllers\BookController;
 
-// Callback Route (Uses our updated dynamic middleware)
+// --- Node -> Laravel callback endpoint ---
+// Used by the Node scraper. Protected with the dedicated node.apikey
+// middleware and intentionally kept outside the verify.app.key group.
 Route::post('/book-scraper/callback', [ScrapeController::class, 'callback'])
     ->middleware('node.apikey')
     ->name('book-scraper.callback');
 
-// Run Route (Temporarily commented out auth:sanctum for Postman testing)
-Route::post('/book-scraper/run', [ScrapeController::class, 'runScrape'])
-    ->middleware(['throttle:10,1']);
+// --- Frontend -> Laravel scraping endpoints ---
+// Used by the Vue frontend or API clients. Requests must provide a valid
+// X-App-Key and pass the origin verification middleware.
+Route::middleware(['verify.app.key', 'verify.origin'])->group(function () {
 
-// Full-district run: separate shape ({ year, district, teaching_cycle }
-// only) since FullDistrictStrategy now discovers cities/schools itself.
-Route::post('/book-scraper/run/district', [ScrapeController::class, 'runDistrictScrape'])
-    ->middleware(['throttle:10,1']);
+    // Starts a standard scraping run.
+    Route::post('/book-scraper/run', [ScrapeController::class, 'runScrape'])
+        ->middleware(['throttle:scrape-run']);
 
-// Full-city run: like full-district, but scoped to one city/concelho
-// ({ year, district, city, teaching_cycle }) since FullCityStrategy still
-// needs the district to reach the city step in the site's cascading combo.
-Route::post('/book-scraper/run/city', [ScrapeController::class, 'runCityScrape'])
-    ->middleware(['throttle:10,1']);
+    // Starts a full-district scrape. Cities and schools are discovered
+    // automatically by FullDistrictStrategy.
+    Route::post('/book-scraper/run/district', [ScrapeController::class, 'runDistrictScrape'])
+        ->middleware(['throttle:scrape-run-heavy']);
 
-Route::get('/book-scraper/status/{runId}', [ScrapeController::class, 'monitor'])
-    ->name('book-scraper.status');
+    // Starts a full-city scrape for a specific district and city.
+    Route::post('/book-scraper/run/city', [ScrapeController::class, 'runCityScrape'])
+        ->middleware(['throttle:scrape-run-heavy']);
 
-// --- Frontend-facing read endpoints ---
+    // Returns the status and progress of a scraping run.
+    Route::get('/book-scraper/status/{runId}', [ScrapeController::class, 'monitor'])
+        ->name('book-scraper.status');
 
+    // Main search endpoint. Uses cached data when available and starts a
+    // scrape on a cache miss. Supports school, city and title searches.
+    Route::get('/books/search', [BookController::class, 'search'])
+        ->middleware(['throttle:30,1']);
+});
 
-// Main search: DB lookup, falls back to a live scrape on a miss (202 + run_id).
-// Supports three modes: school,city,book title. All paginated.
-Route::get('/books/search', [BookController::class, 'search'])
-    ->middleware(['throttle:30,1']);
+// --- Public read-only endpoints ---
+// These endpoints never trigger scraping and remain public for frontend
+// autocomplete and browsing features.
 
-// Book price history, ordered from newest to oldest. No pagination.
+// Book price history ordered from newest to oldest. No pagination.
 Route::get('/books/{book}/price-history', [BookController::class, 'priceHistory'])
     ->middleware(['throttle:30,1']);
 
-// Autocomplete/browse over already-scraped schools. Never triggers a scrape.
+// Returns already-scraped schools for autocomplete and browsing.
 Route::get('/schools', [BookController::class, 'schools']);
 
-// Cascading district/city selects, derived from already-scraped data.
+// Returns districts and cities derived from already-scraped data.
+
 Route::get('/locations', [BookController::class, 'locations']);
