@@ -17,6 +17,8 @@ return [
     'postmark' => [
         'key' => env('POSTMARK_API_KEY'),
     ],
+    
+    'app_key' => env('APP_API_KEY'),
 
     'node_scraper' => [
         'url' => env('NODE_SCRAPER_URL', 'http://localhost:3000'),
