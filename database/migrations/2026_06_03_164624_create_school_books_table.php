@@ -10,15 +10,18 @@ return new class extends Migration
     {
         Schema::create('school_books', function (Blueprint $table) {
             $table->id();
-            $table->foreignId('book_id')->constrained('books')->cascadeOnDelete();
-            $table->foreignId('school_id')->constrained('schools')->cascadeOnDelete();
-            $table->string('year');
-            $table->string('teaching_cycle');
+
+            $table->foreignId('school_id')->constrained()->cascadeOnDelete();
+            $table->foreignId('book_id')->constrained()->cascadeOnDelete();
+
+            $table->string('year', 10);              // ex: 4.º, 10.º
+            $table->string('teaching_cycle', 80);    // ex: Ensino Básico (3º Ciclo)
+            $table->string('course', 120)->nullable();
+
             $table->timestamps();
 
-            // Guarantees a book can never be linked twice 
             $table->unique(
-                ['school_id', 'book_id', 'year', 'teaching_cycle'],
+                ['school_id', 'book_id', 'year', 'teaching_cycle', 'course'],
                 'school_books_unique_link'
             );
         });

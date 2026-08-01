@@ -11,6 +11,7 @@ class SchoolBook extends Model
         'school_id',
         'year',
         'teaching_cycle',
+        'course',
     ];
 
     public function book()
