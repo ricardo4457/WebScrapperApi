@@ -4,6 +4,10 @@ use Illuminate\Foundation\Application;
 use Illuminate\Foundation\Configuration\Exceptions;
 use Illuminate\Foundation\Configuration\Middleware;
 
+use App\Http\Middleware\VerifyAppApiKey;
+use App\Http\Middleware\VerifyRequestOrigin;
+use App\Http\Middleware\VerifyNodeApiKey;
+
 return Application::configure(basePath: dirname(__DIR__))
     ->withRouting(
         web: __DIR__ . '/../routes/web.php',
@@ -13,7 +17,9 @@ return Application::configure(basePath: dirname(__DIR__))
     )
     ->withMiddleware(function (Middleware $middleware) {
         $middleware->alias([
-            'node.apikey' => \App\Http\Middleware\VerifyNodeApiKey::class,
+            'verify.app.key' => VerifyAppApiKey::class,
+            'verify.origin'  => VerifyRequestOrigin::class,
+            'node.apikey'    => VerifyNodeApiKey::class,
         ]);
     })
     ->withExceptions(function (Exceptions $exceptions): void {
