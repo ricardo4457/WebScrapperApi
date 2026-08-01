@@ -75,7 +75,7 @@ class BookController extends Controller
         ]);
     }
 
- /**
+    /**
      * GET /api/books/{book}/price-history
      *
      * Returns the full price history for a single book, ordered from newest
@@ -96,7 +96,7 @@ class BookController extends Controller
         ]);
     }
 
- /**
+    /**
      * GET /api/schools?district=&city=&search=
      *
      * Returns schools from the local database for autocomplete and dropdown
@@ -125,7 +125,7 @@ class BookController extends Controller
      * ?district=), for cascading selects. Only reflects what's already
      * been scraped at least once.
      */
-    
+
     public function locations(Request $request): JsonResponse
     {
         if ($request->filled('district')) {
@@ -143,5 +143,23 @@ class BookController extends Controller
             ->pluck('district');
 
         return response()->json(['districts' => $districts]);
+    }
+
+    /**
+     * GET /api/disciplines
+     *
+     * Returns the distinct disciplines available in the books table.
+     *
+     */
+
+    public function disciplines(): JsonResponse
+    {
+        $disciplines = Book::query()
+            ->whereNotNull('discipline')
+            ->distinct()
+            ->orderBy('discipline')
+            ->pluck('discipline');
+
+        return response()->json(['disciplines' => $disciplines]);
     }
 }

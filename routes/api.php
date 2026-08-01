@@ -54,3 +54,7 @@ Route::get('/schools', [BookController::class, 'schools']);
 // Returns districts and cities derived from already-scraped data.
 
 Route::get('/locations', [BookController::class, 'locations']);
+
+// Returns distinct disciplines already present in the books table, for
+// the discipline dropdown in the search funnel. Never triggers scraping.
+Route::get('/disciplines', [BookController::class, 'disciplines']);
