@@ -20,10 +20,11 @@ class BookImportService
     /**
      * Imports scraped books into the database and reconciles each school's
      * book list against the scraped list, treating the payload as the
-     * source of truth for the (school, year, teaching_cycle) scope it
-     * covers: existing links no longer present are removed, missing ones
+     * source of truth for the (school, year, teaching_cycle, course) scope
+     * it covers: existing links no longer present are removed, missing ones
      * are added, and books are never duplicated (reused via
-     * findOrCreateBook()).
+     * findOrCreateBook()). course is nullable and only meaningful for the
+     * cycles that have a "Curso" step (e.g. 2º/3º Ciclo).
      */
     public function import(array $books): array
     {
@@ -103,27 +104,32 @@ class BookImportService
                 continue;
             }
 
-            $scopeKey = $item['year'] . '|' . $item['teaching_cycle'];
+            $scopeKey = $item['year'] . '|' . $item['teaching_cycle'] . '|' . ($item['course'] ?? '');
 
             $scopes[$scopeKey]['year'] ??= $item['year'];
             $scopes[$scopeKey]['teaching_cycle'] ??= $item['teaching_cycle'];
+            $scopes[$scopeKey]['course'] ??= $item['course'] ?? null;
             $scopes[$scopeKey]['items'][] = $item;
         }
 
         foreach ($scopes as $scope) {
-            $this->syncScope($school, $scope['year'], $scope['teaching_cycle'], $scope['items'], $report);
+            $this->syncScope($school, $scope['year'], $scope['teaching_cycle'], $scope['course'], $scope['items'], $report);
         }
     }
 
     /**
-     * Synchronizes the books for a specific school, year and teaching cycle.
-     * Reuses existing books, creates new ones when necessary and updates
-     * the relationships atomically.
+     * Synchronizes the books for a specific school, year, teaching cycle
+     * and course. Reuses existing books, creates new ones when necessary
+     * and updates the relationships atomically.
+     *
+     * course is nullable: cycles without a "Curso" step (most of them)
+     * simply reconcile with course = null, same as before this field
+     * existed.
      */
 
-    protected function syncScope(School $school, string $year, string $cycle, array $items, array &$report): void
+    protected function syncScope(School $school, string $year, string $cycle, ?string $course, array $items, array &$report): void
     {
-        DB::transaction(function () use ($school, $year, $cycle, $items, &$report) {
+        DB::transaction(function () use ($school, $year, $cycle, $course, $items, &$report) {
             $incomingBookIds = new Collection();
 
             foreach ($items as $item) {
@@ -150,7 +156,8 @@ class BookImportService
             $currentLinksQuery = SchoolBook::query()
                 ->where('school_id', $school->id)
                 ->where('year', $year)
-                ->where('teaching_cycle', $cycle);
+                ->where('teaching_cycle', $cycle)
+                ->where('course', $course);
 
             $existingBookIds = (clone $currentLinksQuery)->pluck('book_id');
 
@@ -166,6 +173,7 @@ class BookImportService
                     'school'         => $school->name,
                     'year'           => $year,
                     'teaching_cycle' => $cycle,
+                    'course'         => $course,
                     'book_ids'       => $toRemove->values()->all(),
                 ]);
             }
@@ -179,6 +187,7 @@ class BookImportService
                         'book_id'        => $bookId,
                         'year'           => $year,
                         'teaching_cycle' => $cycle,
+                        'course'         => $course,
                         'created_at'     => $now,
                         'updated_at'     => $now,
                     ])->all()
@@ -209,6 +218,7 @@ class BookImportService
             'price'          => ['required', 'numeric'],
             'year'           => ['required', 'string'],
             'teaching_cycle' => ['required', 'string'],
+            'course'         => ['nullable', 'string'],
         ])->validate();
     }
 
