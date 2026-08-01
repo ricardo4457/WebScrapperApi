@@ -31,6 +31,7 @@ class StartScrapeRequest extends FormRequest
             ],
             'year' => ['required', 'string'],
             'teaching_cycle' => ['nullable', 'string'],
+            'course' => ['nullable', 'string'],
             'district' => ['required', 'string'],
             'city' => ['required', 'string'],
             'school' => ['required', 'string'],

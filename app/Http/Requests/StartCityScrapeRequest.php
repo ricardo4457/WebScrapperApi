@@ -20,6 +20,7 @@ class StartCityScrapeRequest extends FormRequest
             'district' => ['required', 'string'],
             'city' => ['required', 'string'],
             'year' => ['required', 'string'],
+            'course'         => ['nullable', 'string'],
             'teaching_cycle' => ['required', 'string'],
         ];
     }
@@ -30,6 +31,7 @@ class StartCityScrapeRequest extends FormRequest
             'district.required' => 'The district is required to start a city-wide scrape.',
             'city.required' => 'The city is required to start a city-wide scrape.',
             'year.required' => 'The year is required to start a city-wide scrape.',
+            'course.nullable' => 'The course is optional.',
             'teaching_cycle.required' => 'The teaching cycle is required to start a city-wide scrape.',
         ];
     }

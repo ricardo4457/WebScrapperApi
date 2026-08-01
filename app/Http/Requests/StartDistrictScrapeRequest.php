@@ -22,6 +22,7 @@ class StartDistrictScrapeRequest extends FormRequest
             'district' => ['required', 'string'],
             'year' => ['required', 'string'],
             'teaching_cycle' => ['required', 'string'],
+             'course'         => ['nullable', 'string'],
         ];
     }
 

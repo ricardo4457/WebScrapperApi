@@ -36,6 +36,7 @@ class BookSearchRequest extends FormRequest
             'school'         => ['nullable', 'string'],
             'year'           => ['nullable', 'string'],
             'teaching_cycle' => ['nullable', 'string'],
+            'course'         => ['nullable', 'string'],
             'page'           => ['nullable', 'integer', 'min:1'],
             'per_page'       => ['nullable', 'integer', 'min:1', 'max:100'],
         ];
