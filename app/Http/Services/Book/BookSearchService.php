@@ -40,41 +40,43 @@ class BookSearchService
     }
 
     /**
+
      * Searches books for a specific school.
      *
-     * The school is matched by name only to stay consistent with the
-     * import process, which uses the school name as the unique key.
-     * Existing district and city values are reused when available.
-     *
-     * If no cached books are found for the requested year and teaching
-     * cycle, a live scraping job is started.
+     * If no cached books are found for the requested year, teaching cycle
+     * and/or course, a live scraping job is started using the same filters.
      */
+
     private function searchBySchool(array $params): array
     {
         $school = School::where('name', $params['school'])->first();
 
         if ($school) {
-        $query = $school->books()
-            ->wherePivot('year', $params['year']);
+            $query = $school->books()
+                ->wherePivot('year', $params['year']);
 
-        if (!empty($params['teaching_cycle'])) {
-            $query->wherePivot('teaching_cycle', $params['teaching_cycle']);
-        }
+            if (!empty($params['teaching_cycle'])) {
+                $query->wherePivot('teaching_cycle', $params['teaching_cycle']);
+            }
 
-        $books = $query
-            ->orderBy('price')
-            ->paginate($this->perPage($params));
+            if (!empty($params['course'])) {
+                $query->wherePivot('course', $params['course']);
+            }
 
-        if ($books->total() > 0) {
-            return [
-                'mode'   => 'school',
-                'found'  => true,
-                'school' => $school,
-                'books'  => $books,
-                'scrape' => null,
-                'error'  => null,
-            ];
-        }
+            $books = $query
+                ->orderBy('price')
+                ->paginate($this->perPage($params));
+
+            if ($books->total() > 0) {
+                return [
+                    'mode'   => 'school',
+                    'found'  => true,
+                    'school' => $school,
+                    'books'  => $books,
+                    'scrape' => null,
+                    'error'  => null,
+                ];
+            }
         }
 
         // No cached books found for the requested year and teaching cycle.
@@ -100,6 +102,7 @@ class BookSearchService
             'school'         => $params['school'],
             'year'           => $params['year'],
             'teaching_cycle' => $params['teaching_cycle'] ?? null,
+            'course'         => $params['course'] ?? null,
         ]);
 
         return [
@@ -113,13 +116,14 @@ class BookSearchService
     }
 
     /**
+
      * Searches books already scraped for schools in a specific city.
      *
-     * Results may be filtered by year and teaching cycle. Existing
-     * district information is reused when available.
-     *
-     * If no cached books are found, a city discovery scrape is started.
+     * Results may be filtered by year, teaching cycle and course.
+     * If no cached books are found for that scope, a city discovery scrape
+     * is started with the same filters.
      */
+
 
     private function searchByCity(array $params): array
     {
@@ -127,7 +131,8 @@ class BookSearchService
             ->whereHas('schoolBooks', function ($query) use ($params) {
                 $query->whereHas('school', fn($q) => $q->where('city', $params['city']))
                     ->when(!empty($params['year']), fn($q) => $q->where('year', $params['year']))
-                    ->when(!empty($params['teaching_cycle']), fn($q) => $q->where('teaching_cycle', $params['teaching_cycle']));
+                    ->when(!empty($params['teaching_cycle']), fn($q) => $q->where('teaching_cycle', $params['teaching_cycle']))
+                    ->when(!empty($params['course']), fn($q) => $q->where('course', $params['course']));
             })
             ->distinct()
             ->orderBy('price')
