@@ -10,7 +10,6 @@ class ScrapeRun extends Model
     protected $fillable = [
         'token',
         'status',
-        'external_run_id',
         'params',
         'jobs_total',
         'jobs_done',

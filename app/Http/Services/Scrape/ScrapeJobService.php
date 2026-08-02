@@ -50,7 +50,7 @@ class ScrapeJobService
     {
         $job->update([
             'status'        => 'running',
-            'bullmq_job_id' => $bullmqJobId,
+            'job_token' => $bullmqJobId,
             'reported_at'   => now(),
         ]);
     }

@@ -23,7 +23,6 @@ return new class extends Migration
                 'failed'
             ])->default('pending');
 
-            $table->string('external_run_id')->nullable();
 
             $table->json('params')->nullable();
 

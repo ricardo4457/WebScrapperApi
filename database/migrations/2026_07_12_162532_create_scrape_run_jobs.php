@@ -19,7 +19,6 @@ return new class extends Migration
                 ->cascadeOnDelete();
 
             $table->string('job_token', 64)->unique();
-            $table->string('bullmq_job_id')->nullable()->unique();
 
             $table->enum('status', [
                 'pending',

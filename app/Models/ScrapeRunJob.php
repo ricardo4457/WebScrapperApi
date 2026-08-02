@@ -10,7 +10,6 @@ class ScrapeRunJob extends Model
     protected $fillable = [
         'scrape_run_id',
         'job_token',
-        'bullmq_job_id',
         'status',
         'error_message',
         'reported_at',
