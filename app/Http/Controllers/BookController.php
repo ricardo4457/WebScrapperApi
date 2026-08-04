@@ -25,9 +25,16 @@ class BookController extends Controller
 
     public function show(Book $book): JsonResponse
     {
-        return response()->json([
-            'book' => $book->only(['id', 'title', 'publisher', 'discipline', 'price']),
-        ]);
+      return response()->json([
+        'book' => $book->only(['id', 'title', 'publisher', 'discipline', 'price']),
+        'schools' => $book->schoolBooks->map(fn($sb) => [
+            'school_id' => $sb->school->id,
+            'name'      => $sb->school->name,
+            'district'  => $sb->school->district,
+            'city'      => $sb->school->city,
+            'year'      => $sb->year,
+        ]),
+    ]);
     }
 
     /**
