@@ -16,6 +16,21 @@ class BookController extends Controller
     ) {}
 
     /**
+     * GET /api/books/{book}
+     *
+     * Returns a single book's details, including which schools carry it.
+     *
+     * This endpoint is read-only and never triggers scraping.
+     */
+
+    public function show(Book $book): JsonResponse
+    {
+        return response()->json([
+            'book' => $book->only(['id', 'title', 'publisher', 'discipline', 'price']),
+        ]);
+    }
+
+    /**
      * Main frontend endpoint for book searches.
      *
      * Supported search modes (see BookSearchRequest):

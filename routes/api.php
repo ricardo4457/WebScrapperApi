@@ -44,7 +44,12 @@ Route::middleware(['verify.app.key', 'verify.origin'])->group(function () {
 // These endpoints never trigger scraping and remain public for frontend
 // autocomplete and browsing features.
 
-// Book price history ordered from newest to oldest. No pagination.
+// GET /api/books/{book}
+// Returns a single book's details. Read-only, never triggers scraping.
+Route::get('/books/{book}', [BookController::class, 'show'])
+    ->middleware(['throttle:30,1']);
+
+// Book price history, ordered from newest to oldest. No pagination.
 Route::get('/books/{book}/price-history', [BookController::class, 'priceHistory'])
     ->middleware(['throttle:30,1']);
 
