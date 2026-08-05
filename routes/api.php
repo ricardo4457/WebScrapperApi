@@ -56,6 +56,9 @@ Route::get('/books/{book}/price-history', [BookController::class, 'priceHistory'
 // Returns already-scraped schools for autocomplete and browsing.
 Route::get('/schools', [BookController::class, 'schools']);
 
+// Returns the courses already scraped for a specific school,
+Route::get('/schools/{school}/courses', [BookController::class, 'schoolCourses']);
+
 // Returns districts and cities derived from already-scraped data.
 
 Route::get('/locations', [BookController::class, 'locations']);

@@ -6,6 +6,7 @@ use App\Http\Requests\BookSearchRequest;
 use App\Http\Services\Book\BookSearchService;
 use App\Models\Book;
 use App\Models\School;
+use App\Models\SchoolBook;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 
@@ -183,5 +184,37 @@ class BookController extends Controller
             ->pluck('discipline');
 
         return response()->json(['disciplines' => $disciplines]);
+    }
+
+    /**
+     * GET /api/schools/{school}/courses?teaching_cycle=
+     *
+     * Returns the distinct courses ("Curso") already scraped for a
+     * specific school, optionally filtered by teaching_cycle.
+     *
+     * This is what the frontend wizard uses to decide whether to inject
+     * the CourseStep: courses only exist in the DB as a side effect of a
+     * previous book scrape for that school, so there is no standalone
+     * "courses" strategy. An empty result means the school has never
+     * been scraped for a cycle that has a "Curso" step, so the wizard
+     * skips the step and course becomes a post-search filter instead.
+     *
+     * Read-only and never triggers scraping.
+     */
+
+    public function schoolCourses(School $school, Request $request): JsonResponse
+    {
+        $courses = SchoolBook::query()
+            ->where('school_id', $school->id)
+            ->whereNotNull('course')
+            ->when(
+                $request->filled('teaching_cycle'),
+                fn($q) => $q->where('teaching_cycle', $request->input('teaching_cycle'))
+            )
+            ->distinct()
+            ->orderBy('course')
+            ->pluck('course');
+
+        return response()->json(['courses' => $courses]);
     }
 }
