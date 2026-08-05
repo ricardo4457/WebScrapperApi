@@ -20,7 +20,7 @@ class School extends Model
     public function books()
     {
         return $this->belongsToMany(Book::class, 'school_books')
-                    ->withPivot('year', 'teaching_cycle')
+                    ->withPivot('year', 'teaching_cycle', 'course')
                     ->withTimestamps();
     }
 }

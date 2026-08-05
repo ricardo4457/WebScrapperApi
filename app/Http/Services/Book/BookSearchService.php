@@ -168,6 +168,7 @@ class BookSearchService
             'city'           => $params['city'],
             'year'           => $params['year'],
             'teaching_cycle' => $params['teaching_cycle'] ?? null,
+            'course'         => $params['course'] ?? null,
         ]);
 
         return [
