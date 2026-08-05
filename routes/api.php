@@ -30,6 +30,14 @@ Route::middleware(['verify.app.key', 'verify.origin'])->group(function () {
     Route::post('/book-scraper/run/city', [ScrapeController::class, 'runCityScrape'])
         ->middleware(['throttle:scrape-run-heavy']);
 
+    // Starts a full-teaching-cycle scrape for a specific district and city.
+    Route::post('/book-scraper/run/teaching-cycle', [ScrapeController::class, 'runTeachingCycleScrape'])
+        ->middleware(['throttle:scrape-run-heavy']);
+
+    // Returns the courses already scraped for a specific school,
+    Route::get('/schools/{school}/courses', [BookController::class, 'schoolCourses'])
+        ->middleware(['throttle:scrape-run-heavy']);
+
     // Returns the status and progress of a scraping run.
     Route::get('/book-scraper/status/{runId}', [ScrapeController::class, 'monitor'])
         ->name('book-scraper.status');
@@ -56,8 +64,6 @@ Route::get('/books/{book}/price-history', [BookController::class, 'priceHistory'
 // Returns already-scraped schools for autocomplete and browsing.
 Route::get('/schools', [BookController::class, 'schools']);
 
-// Returns the courses already scraped for a specific school,
-Route::get('/schools/{school}/courses', [BookController::class, 'schoolCourses']);
 
 // Returns districts and cities derived from already-scraped data.
 
