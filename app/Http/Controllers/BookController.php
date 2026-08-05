@@ -4,6 +4,7 @@ namespace App\Http\Controllers;
 
 use App\Http\Requests\BookSearchRequest;
 use App\Http\Services\Book\BookSearchService;
+use App\Http\Services\Scrape\ScrapeDispatchService;
 use App\Models\Book;
 use App\Models\School;
 use App\Models\SchoolBook;
@@ -14,6 +15,7 @@ class BookController extends Controller
 {
     public function __construct(
         private BookSearchService $search,
+        private ScrapeDispatchService $dispatcher,
     ) {}
 
     /**
@@ -186,21 +188,16 @@ class BookController extends Controller
         return response()->json(['disciplines' => $disciplines]);
     }
 
-    /**
-     * GET /api/schools/{school}/courses?teaching_cycle=
-     *
-     * Returns the distinct courses ("Curso") already scraped for a
-     * specific school, optionally filtered by teaching_cycle.
-     *
-     * This is what the frontend wizard uses to decide whether to inject
-     * the CourseStep: courses only exist in the DB as a side effect of a
-     * previous book scrape for that school, so there is no standalone
-     * "courses" strategy. An empty result means the school has never
-     * been scraped for a cycle that has a "Curso" step, so the wizard
-     * skips the step and course becomes a post-search filter instead.
-     *
-     * Read-only and never triggers scraping.
-     */
+/**
+ * GET /api/schools/{school}/courses?teaching_cycle=&year=&discover=1
+ *
+ * Returns the distinct courses already scraped for a school.
+ *
+ * Used by the frontend wizard to decide whether to show the Course step.
+ * By default this endpoint is read-only. If discover=1 is provided and no
+ * courses are cached, it starts a full_teaching_cycle scrape and returns
+ * HTTP 202 with a run_id for polling.
+ */
 
     public function schoolCourses(School $school, Request $request): JsonResponse
     {
@@ -215,6 +212,38 @@ class BookController extends Controller
             ->orderBy('course')
             ->pluck('course');
 
-        return response()->json(['courses' => $courses]);
+        if ($courses->isNotEmpty() || !$request->boolean('discover')) {
+            return response()->json(['courses' => $courses]);
+        }
+
+        if (!$request->filled('year') || !$request->filled('teaching_cycle')) {
+            return response()->json([
+                'status'  => 'error',
+                'message' => 'year e teaching_cycle são obrigatórios para iniciar a descoberta de cursos.',
+            ], 422);
+        }
+
+        $scrape = $this->dispatcher->dispatch([
+            'strategy'       => 'full_teaching_cycle',
+            'district'       => $school->district,
+            'city'           => $school->city,
+            'school'         => $school->name,
+            'year'           => $request->input('year'),
+            'teaching_cycle' => $request->input('teaching_cycle'),
+        ]);
+
+        if (!$scrape['ok']) {
+            return response()->json([
+                'status'  => 'error',
+                'message' => $scrape['error'],
+            ], $scrape['status']);
+        }
+
+        return response()->json([
+            'status'     => 'scraping',
+            'message'    => 'Cursos ainda não foram descobertos para esta escola, scrape iniciado.',
+            'run_id'     => $scrape['run']->id,
+            'jobs_total' => $scrape['jobs_total'],
+        ], 202);
     }
 }
