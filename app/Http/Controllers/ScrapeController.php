@@ -5,6 +5,7 @@ namespace App\Http\Controllers;
 use App\Http\Requests\ScrapeCallbackRequest;
 use App\Http\Requests\StartCityScrapeRequest;
 use App\Http\Requests\StartDistrictScrapeRequest;
+use App\Http\Requests\StartTeachingCycleRequest;
 use App\Http\Requests\StartScrapeRequest;
 use App\Http\Services\Scrape\ScrapeCallbackService;
 use App\Http\Services\Scrape\ScrapeDispatchService;
@@ -53,6 +54,18 @@ class ScrapeController extends Controller
             'strategy' => 'full_city',
         ]);
     }
+
+    /**
+     * Trigger a full-teaching-cycle (ciclo) scrape run.
+     */
+    public function runTeachingCycleScrape(StartTeachingCycleRequest $request): JsonResponse
+    {
+        return $this->dispatchRun([
+            ...$request->validated(),
+            'strategy' => 'full_teaching_cycle',
+        ]);
+    }
+
 
     /**
      * Thin wrapper around ScrapeDispatchService::dispatch() that turns its
