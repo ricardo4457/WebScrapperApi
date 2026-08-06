@@ -28,16 +28,16 @@ class BookController extends Controller
 
     public function show(Book $book): JsonResponse
     {
-      return response()->json([
-        'book' => $book->only(['id', 'title', 'publisher', 'discipline', 'price']),
-        'schools' => $book->schoolBooks->map(fn($sb) => [
-            'school_id' => $sb->school->id,
-            'name'      => $sb->school->name,
-            'district'  => $sb->school->district,
-            'city'      => $sb->school->city,
-            'year'      => $sb->year,
-        ]),
-    ]);
+        return response()->json([
+            'book' => $book->only(['id', 'title', 'publisher', 'discipline', 'price']),
+            'schools' => $book->schoolBooks->map(fn($sb) => [
+                'school_id' => $sb->school->id,
+                'name'      => $sb->school->name,
+                'district'  => $sb->school->district,
+                'city'      => $sb->school->city,
+                'year'      => $sb->year,
+            ]),
+        ]);
     }
 
     /**
@@ -132,17 +132,59 @@ class BookController extends Controller
 
     public function schools(Request $request): JsonResponse
     {
+        $district = $request->input('district');
+        $city     = $request->input('city');
+
         $schools = School::query()
-            ->when($request->filled('district'), fn($q) => $q->where('district', $request->input('district')))
-            ->when($request->filled('city'), fn($q) => $q->where('city', $request->input('city')))
-            ->when($request->filled('search'), fn($q) => $q->where('name', 'like', '%' . $request->input('search') . '%'))
+            ->when($district, fn($q) => $q->where('district', $district))
+            ->when($city, fn($q) => $q->where('city', $city))
+            ->when(
+                $request->filled('search'),
+                fn($q) =>
+                $q->where('name', 'like', '%' . $request->input('search') . '%')
+            )
             ->orderBy('name')
             ->limit(50)
             ->get(['id', 'district', 'city', 'name']);
 
-        return response()->json($schools);
-    }
+        // 👉 Se encontrou, devolve normal
+        if ($schools->isNotEmpty()) {
+            return response()->json([
+                'status'  => 'found',
+                'schools' => $schools,
+            ]);
+        }
 
+        // 👉 Não encontrou e quer descobrir → full city scrape
+        if ($request->boolean('discover') && $district && $city) {
+
+            $scrape = $this->dispatcher->dispatch([
+                'strategy'       =>  'full_city',
+                'district' => $district,
+                'city'     => $city,
+            ]);
+
+            if (!$scrape['ok']) {
+                return response()->json([
+                    'status'  => 'error',
+                    'message' => $scrape['error'],
+                ], $scrape['status']);
+            }
+
+            return response()->json([
+                'status'     => 'scraping',
+                'message'    => 'Schools not cached yet, full city scrape started.',
+                'run_id'     => $scrape['run']->id,
+                'jobs_total' => $scrape['jobs_total'],
+            ], 202);
+        }
+
+        // 👉 fallback vazio
+        return response()->json([
+            'status'  => 'not_found',
+            'schools' => [],
+        ]);
+    }
     /**
      * GET /api/locations?district=
      *
@@ -170,34 +212,77 @@ class BookController extends Controller
         return response()->json(['districts' => $districts]);
     }
 
-    /**
-     * GET /api/disciplines
-     *
-     * Returns the distinct disciplines available in the books table.
-     *
-     */
-
-    public function disciplines(): JsonResponse
+// Choose the cheapest discovery strategy available.
+    public function schoolDisciplines(School $school, Request $request): JsonResponse
     {
         $disciplines = Book::query()
             ->whereNotNull('discipline')
+            ->whereHas('schoolBooks', function ($q) use ($school, $request) {
+                $q->where('school_id', $school->id)
+                    ->when(
+                        $request->filled('year'),
+                        fn($q) => $q->where('year', $request->input('year'))
+                    )
+                    ->when(
+                        $request->filled('teaching_cycle'),
+                        fn($q) => $q->where('teaching_cycle', $request->input('teaching_cycle'))
+                    )
+                    ->when(
+                        $request->filled('course'),
+                        fn($q) => $q->where('course', $request->input('course'))
+                    );
+            })
             ->distinct()
             ->orderBy('discipline')
             ->pluck('discipline');
 
-        return response()->json(['disciplines' => $disciplines]);
-    }
+        if ($disciplines->isNotEmpty() || !$request->boolean('discover')) {
+            return response()->json(['disciplines' => $disciplines]);
+        }
 
-/**
- * GET /api/schools/{school}/courses?teaching_cycle=&year=&discover=1
- *
- * Returns the distinct courses already scraped for a school.
- *
- * Used by the frontend wizard to decide whether to show the Course step.
- * By default this endpoint is read-only. If discover=1 is provided and no
- * courses are cached, it starts a full_teaching_cycle scrape and returns
- * HTTP 202 with a run_id for polling.
- */
+        if (!$request->filled('year') || !$request->filled('teaching_cycle')) {
+            return response()->json([
+                'status'  => 'error',
+                'message' => 'year e teaching_cycle são obrigatórios para iniciar a descoberta de disciplinas.',
+            ], 422);
+        }
+
+        $hasCourse = $request->filled('course');
+
+        $scrape = $this->dispatcher->dispatch([
+            'strategy'       => $hasCourse ? 'single_school' : 'full_teaching_cycle',
+            'district'       => $school->district,
+            'city'           => $school->city,
+            'school'         => $school->name,
+            'year'           => $request->input('year'),
+            'teaching_cycle' => $request->input('teaching_cycle'),
+            ...($hasCourse ? ['course' => $request->input('course')] : []),
+        ]);
+
+        if (!$scrape['ok']) {
+            return response()->json([
+                'status'  => 'error',
+                'message' => $scrape['error'],
+            ], $scrape['status']);
+        }
+
+        return response()->json([
+            'status'     => 'scraping',
+            'message'    => 'Disciplinas ainda não foram descobertas para esta escola, scrape iniciado.',
+            'run_id'     => $scrape['run']->id,
+            'jobs_total' => $scrape['jobs_total'],
+        ], 202);
+    }
+    /**
+     * GET /api/schools/{school}/courses?teaching_cycle=&year=&discover=1
+     *
+     * Returns the distinct courses already scraped for a school.
+     *
+     * Used by the frontend wizard to decide whether to show the Course step.
+     * By default this endpoint is read-only. If discover=1 is provided and no
+     * courses are cached, it starts a full_teaching_cycle scrape and returns
+     * HTTP 202 with a run_id for polling.
+     */
 
     public function schoolCourses(School $school, Request $request): JsonResponse
     {
