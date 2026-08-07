@@ -34,19 +34,22 @@ Route::middleware(['verify.app.key', 'verify.origin'])->group(function () {
     Route::post('/book-scraper/run/teaching-cycle', [ScrapeController::class, 'runTeachingCycleScrape'])
         ->middleware(['throttle:scrape-run-heavy']);
 
-    // Returns the courses already scraped for a specific school,
+    // Returns the courses already scraped for a specific school. Read-only
+    // unless discover=1 is set and nothing is cached, in which case it starts
+    // a scrape. Uses the looser lookup limiter since the wizard calls this
+    // repeatedly during normal navigation.
     Route::get('/schools/{school}/courses', [BookController::class, 'schoolCourses'])
-        ->middleware(['throttle:scrape-run-heavy']);
+        ->middleware(['throttle:scrape-lookup']);
 
     // Returns the disciplines already scraped for a specific school, scoped by
     // year/teaching_cycle/course. Same shape as schoolCourses — read-only unless
     // discover=1 is set and nothing is cached, in which case it starts a scrape.
     Route::get('/schools/{school}/disciplines', [BookController::class, 'schoolDisciplines'])
-        ->middleware(['throttle:scrape-run-heavy']);
+        ->middleware(['throttle:scrape-lookup']);
 
     // Returns already-scraped schools for autocomplete and browsing.
     Route::get('/schools', [BookController::class, 'schools'])
-        ->middleware(['throttle:scrape-run-heavy']);
+        ->middleware(['throttle:scrape-lookup']);
 
 
     // Returns the status and progress of a scraping run.
