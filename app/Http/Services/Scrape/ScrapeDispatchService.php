@@ -32,6 +32,19 @@ class ScrapeDispatchService
      */
     public function dispatch(array $validated): array
     {
+        $existing = $this->findRunningDuplicate($validated);
+
+        if ($existing) {
+            return [
+                'ok'         => true,
+                'status'     => 202,
+                'run'        => $existing,
+                'jobs_total' => $existing->jobs_total,
+                'error'      => null,
+                'body'       => null,
+            ];
+        }
+
         $run = $this->runs->create($validated);
         $jobTokens = [Str::uuid()->toString(), Str::uuid()->toString()];
 
@@ -101,5 +114,26 @@ class ScrapeDispatchService
                 'body'       => null,
             ];
         }
+    }
+
+    /**
+     * Reuses an existing pending/running scrape with the same scope
+     * (district/city/school/year/teaching_cycle/course) instead of
+     * starting a duplicate one.
+     */
+
+    private function findRunningDuplicate(array $validated): ?ScrapeRun
+    {
+        $query = ScrapeRun::query()
+            ->whereIn('status', ['pending', 'running'])
+            ->where('strategy', $validated['strategy'] ?? null);
+
+        foreach (['district', 'city', 'school', 'year', 'teaching_cycle', 'course'] as $key) {
+            if (array_key_exists($key, $validated)) {
+                $query->whereJsonContains('params->' . $key, $validated[$key]);
+            }
+        }
+
+        return $query->latest('id')->first();
     }
 }
