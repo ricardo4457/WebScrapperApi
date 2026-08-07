@@ -120,68 +120,96 @@ class BookController extends Controller
             'history' => $history,
         ]);
     }
-
     /**
      * GET /api/schools?district=&city=&search=
      *
-     * Returns schools from the local database for autocomplete and dropdown
-     * components.
-     *
-     * This endpoint is read-only and never triggers scraping.
+     * Returns cached schools for autocomplete/dropdown components.
+     * If discover=1 and no schools are found, starts a full_city scrape.
      */
 
     public function schools(Request $request): JsonResponse
     {
         $district = $request->input('district');
-        $city     = $request->input('city');
+        $city = $request->input('city');
+        $year = $request->input('year');
+        $teachingCycle = $request->input('teaching_cycle');
 
         $schools = School::query()
             ->when($district, fn($q) => $q->where('district', $district))
             ->when($city, fn($q) => $q->where('city', $city))
             ->when(
+                $year || $teachingCycle,
+                fn($q) => $q->whereHas('schoolBooks', function ($sq) use ($year, $teachingCycle) {
+                    $sq->when($year, fn($x) => $x->where('year', $year))
+                        ->when($teachingCycle, fn($x) => $x->where('teaching_cycle', $teachingCycle));
+                })
+            )
+            ->when(
                 $request->filled('search'),
-                fn($q) =>
-                $q->where('name', 'like', '%' . $request->input('search') . '%')
+                fn($q) => $q->where('name', 'like', '%' . $request->input('search') . '%')
             )
             ->orderBy('name')
+            ->distinct()
             ->limit(50)
             ->get(['id', 'district', 'city', 'name']);
 
-        // 👉 Se encontrou, devolve normal
+        // Return cached schools for the selected scope.
         if ($schools->isNotEmpty()) {
             return response()->json([
-                'status'  => 'found',
+                'status' => 'found',
                 'schools' => $schools,
             ]);
         }
 
-        // 👉 Não encontrou e quer descobrir → full city scrape
+        // The city is already cached, but no schools match the selected year/cycle.
+        $cityExists = School::query()
+            ->when($district, fn($q) => $q->where('district', $district))
+            ->when($city, fn($q) => $q->where('city', $city))
+            ->exists();
+
+        if ($cityExists) {
+            return response()->json([
+                'status' => 'not_found',
+                'schools' => [],
+            ]);
+        }
+
+        // No cached schools for this city: optionally start a full city scrape.
         if ($request->boolean('discover') && $district && $city) {
 
+            if (!$year || !$teachingCycle) {
+                return response()->json([
+                    'status' => 'error',
+                    'message' => 'year e teaching_cycle são obrigatórios para discover=1.',
+                ], 422);
+            }
+
             $scrape = $this->dispatcher->dispatch([
-                'strategy'       =>  'full_city',
+                'strategy' => 'full_city',
                 'district' => $district,
-                'city'     => $city,
+                'city' => $city,
+                'year' => $year,
+                'teaching_cycle' => $teachingCycle,
             ]);
 
             if (!$scrape['ok']) {
                 return response()->json([
-                    'status'  => 'error',
+                    'status' => 'error',
                     'message' => $scrape['error'],
                 ], $scrape['status']);
             }
 
             return response()->json([
-                'status'     => 'scraping',
-                'message'    => 'Schools not cached yet, full city scrape started.',
-                'run_id'     => $scrape['run']->id,
+                'status' => 'scraping',
+                'message' => 'Schools not cached yet, full city scrape started.',
+                'run_id' => $scrape['run']->id,
                 'jobs_total' => $scrape['jobs_total'],
             ], 202);
         }
 
-        // 👉 fallback vazio
+        // Empty result without discovery.
         return response()->json([
-            'status'  => 'not_found',
+            'status' => 'not_found',
             'schools' => [],
         ]);
     }
@@ -212,7 +240,7 @@ class BookController extends Controller
         return response()->json(['districts' => $districts]);
     }
 
-// Choose the cheapest discovery strategy available.
+    // Choose the cheapest discovery strategy available.
     public function schoolDisciplines(School $school, Request $request): JsonResponse
     {
         $disciplines = Book::query()
