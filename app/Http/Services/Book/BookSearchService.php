@@ -22,6 +22,9 @@ class BookSearchService
      * - city: books already scraped for schools in a city
      * - title: direct search by book title
      *
+     * discipline is an optional post-filter applied to cached results only.
+     * It is never sent to the scraper.
+     *
      * Database results are returned as paginated collections.
      *
      */
@@ -40,11 +43,12 @@ class BookSearchService
     }
 
     /**
-
      * Searches books for a specific school.
      *
      * If no cached books are found for the requested year, teaching cycle
-     * and/or course, a live scraping job is started using the same filters.
+     * and/or course, a live single_school scrape is started with the same
+     * filters. discipline is intentionally excluded from scraping.
+     *
      */
 
     private function searchBySchool(array $params): array
@@ -63,6 +67,10 @@ class BookSearchService
                 $query->wherePivot('course', $params['course']);
             }
 
+            if (!empty($params['discipline'])) {
+                $query->where('discipline', $params['discipline']);
+            }
+
             $books = $query
                 ->orderBy('price')
                 ->paginate($this->perPage($params));
@@ -79,7 +87,7 @@ class BookSearchService
             }
         }
 
-        // No cached books found for the requested year and teaching cycle.
+        // No cached books found for this scope.
         // Resolve the location and start a live single-school scrape.
         $district = $params['district'] ?? $school?->district;
         $city = $params['city'] ?? $school?->city;
@@ -119,15 +127,15 @@ class BookSearchService
 
      * Searches books already scraped for schools in a specific city.
      *
-     * Results may be filtered by year, teaching cycle and course.
-     * If no cached books are found for that scope, a city discovery scrape
-     * is started with the same filters.
+     * Results may be filtered by year, teaching cycle, course and discipline.
+     * If nothing is cached for that scope, a full_city scrape is started.
      */
 
 
     private function searchByCity(array $params): array
     {
         $books = Book::query()
+            ->when(!empty($params['discipline']), fn($q) => $q->where('discipline', $params['discipline']))
             ->whereHas('schoolBooks', function ($query) use ($params) {
                 $query->whereHas('school', fn($q) => $q->where('city', $params['city']))
                     ->when(!empty($params['year']), fn($q) => $q->where('year', $params['year']))
@@ -184,13 +192,15 @@ class BookSearchService
     /**
      * Searches books by title across all cached books.
      *
-     * This mode is database-only and never starts a scraping job.
+     * Database-only mode: never starts a scraping job.
+     * 
      */
 
     private function searchByTitle(array $params): array
     {
         $books = Book::query()
             ->where('title', 'like', '%' . $params['q'] . '%')
+            ->when(!empty($params['discipline']), fn($q) => $q->where('discipline', $params['discipline']))
             ->orderBy('price')
             ->paginate($this->perPage($params));
 
