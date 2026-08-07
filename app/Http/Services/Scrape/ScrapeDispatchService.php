@@ -125,8 +125,12 @@ class ScrapeDispatchService
     private function findRunningDuplicate(array $validated): ?ScrapeRun
     {
         $query = ScrapeRun::query()
-            ->whereIn('status', ['pending', 'running'])
-            ->where('strategy', $validated['strategy'] ?? null);
+            ->whereIn('status', ['pending', 'running']);
+
+        // strategy is stored inside the params JSON column.
+        if (array_key_exists('strategy', $validated)) {
+            $query->whereJsonContains('params->strategy', $validated['strategy']);
+        }
 
         foreach (['district', 'city', 'school', 'year', 'teaching_cycle', 'course'] as $key) {
             if (array_key_exists($key, $validated)) {
