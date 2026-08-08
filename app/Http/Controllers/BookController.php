@@ -56,10 +56,6 @@ class BookController extends Controller
      * with a run identifier. The frontend should poll the scraping status
      * endpoint and repeat the request after completion.
      *
-     * District and city may be resolved automatically from existing records.
-     * If the required location information cannot be determined, the endpoint
-     * returns HTTP 422.
-     *
      * The q mode is database-only and never triggers scraping.
      */
 

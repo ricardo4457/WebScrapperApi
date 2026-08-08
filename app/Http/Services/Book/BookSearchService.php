@@ -15,46 +15,21 @@ class BookSearchService
         private ScrapeDispatchService $dispatcher,
     ) {}
 
-    /**
-     * Searches books using one of three mutually exclusive modes:
-     *
-     * - school: exact school search with scraping fallback
-     * - city: books already scraped for schools in a city
-     * - title: direct search by book title
-     *
-     * discipline is an optional post-filter applied to cached results only.
-     * It is never sent to the scraper.
-     *
-     * Database results are returned as paginated collections.
-     *
-     */
-
     public function search(array $params): array
     {
         if (!empty($params['school'])) {
             return $this->searchBySchool($params);
         }
 
-        if (!empty($params['city'])) {
-            return $this->searchByCity($params);
-        }
-
         return $this->searchByTitle($params);
     }
 
-    /**
-     * Searches books for a specific school.
-     *
-     * If no cached books are found for the requested year, teaching cycle
-     * and/or course, a live single_school scrape is started with the same
-     * filters. discipline is intentionally excluded from scraping.
-     *
-     */
 
     private function searchBySchool(array $params): array
     {
         $school = School::where('name', $params['school'])->first();
 
+        //  Caso exista escola → tenta livros
         if ($school) {
             $query = $school->books()
                 ->wherePivot('year', $params['year']);
@@ -87,8 +62,7 @@ class BookSearchService
             }
         }
 
-        // No cached books found for this scope.
-        // Resolve the location and start a live single-school scrape.
+
         $district = $params['district'] ?? $school?->district;
         $city = $params['city'] ?? $school?->city;
 
@@ -99,18 +73,40 @@ class BookSearchService
                 'school' => $school,
                 'books'  => null,
                 'scrape' => null,
-                'error'  => 'Escola desconhecida — indica também district e city para poder iniciar o scrape.',
+                'error'  => 'Escola desconhecida — indica district e city.',
             ];
         }
 
+        //  1. Se a escola NÃO existe → faz full_city primeiro
+        if (!$school) {
+            $cityScrape = $this->dispatcher->dispatch([
+                'strategy' => 'full_city',
+                'district' => $district,
+                'city'     => $city,
+                'year'     => $params['year'],
+                'teaching_cycle' => $params['teaching_cycle'] ?? null,
+                'course'   => $params['course'] ?? null,
+            ]);
+
+            return [
+                'mode'   => 'school',
+                'found'  => false,
+                'school' => null,
+                'books'  => null,
+                'scrape' => $cityScrape,
+                'error'  => 'A validar escola — scrape da cidade iniciado.',
+            ];
+        }
+
+        //  2. Escola existe mas sem livros → faz single_school
         $scrape = $this->dispatcher->dispatch([
-            'strategy'       => 'single_school',
-            'district'       => $district,
-            'city'           => $city,
-            'school'         => $params['school'],
-            'year'           => $params['year'],
+            'strategy' => 'single_school',
+            'district' => $district,
+            'city'     => $city,
+            'school'   => $params['school'],
+            'year'     => $params['year'],
             'teaching_cycle' => $params['teaching_cycle'] ?? null,
-            'course'         => $params['course'] ?? null,
+            'course'   => $params['course'] ?? null,
         ]);
 
         return [
@@ -123,78 +119,6 @@ class BookSearchService
         ];
     }
 
-    /**
-
-     * Searches books already scraped for schools in a specific city.
-     *
-     * Results may be filtered by year, teaching cycle, course and discipline.
-     * If nothing is cached for that scope, a full_city scrape is started.
-     */
-
-
-    private function searchByCity(array $params): array
-    {
-        $books = Book::query()
-            ->when(!empty($params['discipline']), fn($q) => $q->where('discipline', $params['discipline']))
-            ->whereHas('schoolBooks', function ($query) use ($params) {
-                $query->whereHas('school', fn($q) => $q->where('city', $params['city']))
-                    ->when(!empty($params['year']), fn($q) => $q->where('year', $params['year']))
-                    ->when(!empty($params['teaching_cycle']), fn($q) => $q->where('teaching_cycle', $params['teaching_cycle']))
-                    ->when(!empty($params['course']), fn($q) => $q->where('course', $params['course']));
-            })
-            ->distinct()
-            ->orderBy('price')
-            ->paginate($this->perPage($params));
-
-        if ($books->total() > 0) {
-            return [
-                'mode'   => 'city',
-                'found'  => true,
-                'school' => null,
-                'books'  => $books,
-                'scrape' => null,
-                'error'  => null,
-            ];
-        }
-
-        $district = $params['district'] ?? School::where('city', $params['city'])->value('district');
-
-        if (!$district) {
-            return [
-                'mode'   => 'city',
-                'found'  => false,
-                'school' => null,
-                'books'  => null,
-                'scrape' => null,
-                'error'  => 'Concelho desconhecido — indica também district para poder iniciar o scrape.',
-            ];
-        }
-
-        $scrape = $this->dispatcher->dispatch([
-            'strategy'       => 'full_city',
-            'district'       => $district,
-            'city'           => $params['city'],
-            'year'           => $params['year'],
-            'teaching_cycle' => $params['teaching_cycle'] ?? null,
-            'course'         => $params['course'] ?? null,
-        ]);
-
-        return [
-            'mode'   => 'city',
-            'found'  => false,
-            'school' => null,
-            'books'  => null,
-            'scrape' => $scrape,
-            'error'  => null,
-        ];
-    }
-
-    /**
-     * Searches books by title across all cached books.
-     *
-     * Database-only mode: never starts a scraping job.
-     * 
-     */
 
     private function searchByTitle(array $params): array
     {
