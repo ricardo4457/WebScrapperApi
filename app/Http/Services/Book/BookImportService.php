@@ -163,6 +163,7 @@ class BookImportService
 
             $toRemove = $existingBookIds->diff($incomingBookIds);
             $toAdd = $incomingBookIds->diff($existingBookIds);
+            $unchanged = $existingBookIds->intersect($incomingBookIds);
 
             if ($toRemove->isNotEmpty()) {
                 (clone $currentLinksQuery)->whereIn('book_id', $toRemove)->delete();
@@ -192,6 +193,19 @@ class BookImportService
                         'updated_at'     => $now,
                     ])->all()
                 );
+            }
+
+            // Livros que já existiam e continuam a existir não sofrem
+            // alteração nenhuma por omissão — mas o `updated_at` precisa de
+            // ser "tocado" mesmo assim, para que o `BookSearchService::refreshIfStale()`
+            // saiba que este âmbito foi confirmado neste scrape. Sem isto,
+            // um re-scrape que devolva os mesmos livros nunca "renova" o
+            // registo, e o fail-safe volta a disparar em todas as
+            // pesquisas seguintes, indefinidamente.
+            if ($unchanged->isNotEmpty()) {
+                (clone $currentLinksQuery)->whereIn('book_id', $unchanged)->update([
+                    'updated_at' => now(),
+                ]);
             }
         });
     }
