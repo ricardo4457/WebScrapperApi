@@ -45,15 +45,14 @@ class BookController extends Controller
      *
      * Supported search modes (see BookSearchRequest):
      * - school: exact school search
-     * - city: books available in a city
      * - q: direct search by book title
      *
-     * Pagination is supported in all modes through the page and per_page
+     * Pagination is supported in both modes through the page and per_page
      * parameters.
      *
-     * School and city searches first check the local database. If no data
-     * is found, a scraping job is started and the endpoint returns HTTP 202
-     * with a run identifier. The frontend should poll the scraping status
+     * School searches first check the local database. If no data is found,
+     * a scraping job is started and the endpoint returns HTTP 202 with a
+     * run identifier. The frontend should poll the scraping status
      * endpoint and repeat the request after completion.
      *
      * The q mode is database-only and never triggers scraping.
@@ -63,7 +62,7 @@ class BookController extends Controller
     {
         $result = $this->search->search($request->validated());
 
-        if (in_array($result['mode'], ['school', 'city'], true) && !$result['found']) {
+        if ($result['mode'] === 'school' && !$result['found']) {
             if ($result['error']) {
                 return response()->json([
                     'status'  => 'error',
@@ -88,11 +87,20 @@ class BookController extends Controller
             ], 202);
         }
 
+        // stale=true means cached data is older than the expected academic year.
+        // Returned books come from cache, but a background re-scrape is triggered
+        // (fail-safe) to fetch updated data. The frontend can use refresh_run_id
+        // to poll the scrape status, just like when no cache is available.
+        $stale = $result['stale'] ?? false;
+        $refreshRun = $stale ? ($result['scrape']['run'] ?? null) : null;
+
         return response()->json([
-            'status' => 'found',
-            'mode'   => $result['mode'],
-            'school' => $result['school'],
-            'books'  => $result['books'],
+            'status'          => 'found',
+            'mode'            => $result['mode'],
+            'school'          => $result['school'],
+            'books'           => $result['books'],
+            'stale'           => $stale,
+            'refresh_run_id'  => $refreshRun?->id,
         ]);
     }
 

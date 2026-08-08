@@ -5,11 +5,21 @@ namespace App\Http\Services\Book;
 use App\Http\Services\Scrape\ScrapeDispatchService;
 use App\Models\Book;
 use App\Models\School;
+use App\Models\SchoolBook;
 use Illuminate\Contracts\Pagination\LengthAwarePaginator;
+use Illuminate\Support\Carbon;
 
 class BookSearchService
 {
     private const DEFAULT_PER_PAGE = 15;
+
+    /**
+     * Os dados de manuais estão presos a um ano letivo. Passado este
+     * número de meses sem atualização, o registo em cache é tratado como
+     * desatualizado (o ano letivo seguinte já deve ter uma lista nova no
+     * Wook) e dispara-se um rescrape em segundo plano.
+     */
+    private const STALE_AFTER_MONTHS = 12;
 
     public function __construct(
         private ScrapeDispatchService $dispatcher,
@@ -51,12 +61,18 @@ class BookSearchService
                 ->paginate($this->perPage($params));
 
             if ($books->total() > 0) {
+                // Fail-safe: cached data may belong to a past academic year.
+                // Serve cache immediately (no blocking), but if it's too old,
+                // trigger a background re-scrape to fetch updated data.
+                $refresh = $this->refreshIfStale($school, $params);
+
                 return [
                     'mode'   => 'school',
                     'found'  => true,
                     'school' => $school,
                     'books'  => $books,
-                    'scrape' => null,
+                    'scrape' => $refresh,
+                    'stale'  => $refresh !== null,
                     'error'  => null,
                 ];
             }
@@ -73,6 +89,7 @@ class BookSearchService
                 'school' => $school,
                 'books'  => null,
                 'scrape' => null,
+                'stale'  => false,
                 'error'  => 'Escola desconhecida — indica district e city.',
             ];
         }
@@ -94,6 +111,7 @@ class BookSearchService
                 'school' => null,
                 'books'  => null,
                 'scrape' => $cityScrape,
+                'stale'  => false,
                 'error'  => 'A validar escola — scrape da cidade iniciado.',
             ];
         }
@@ -115,9 +133,11 @@ class BookSearchService
             'school' => $school,
             'books'  => null,
             'scrape' => $scrape,
+            'stale'  => false,
             'error'  => null,
         ];
     }
+
 
 
     private function searchByTitle(array $params): array
@@ -134,9 +154,47 @@ class BookSearchService
             'school' => null,
             'books'  => $books,
             'scrape' => null,
+            'stale'  => false,
             'error'  => null,
         ];
     }
+
+    /**
+     * Checks if cached books are outdated for this scope.
+     * If so, triggers a background re-scrape.
+     *
+     * Safe to call on every request .
+     *
+     * Returns null if data is fresh, or dispatch result if refreshed.
+     */
+    private function refreshIfStale(School $school, array $params): ?array
+    {
+        $lastUpdatedAt = SchoolBook::query()
+            ->where('school_id', $school->id)
+            ->where('year', $params['year'])
+            ->when(!empty($params['teaching_cycle']), fn($q) => $q->where('teaching_cycle', $params['teaching_cycle']))
+            ->when(!empty($params['course']), fn($q) => $q->where('course', $params['course']))
+            ->max('updated_at');
+
+        $threshold = now()->subMonths(self::STALE_AFTER_MONTHS);
+
+        $isStale = !$lastUpdatedAt || Carbon::parse($lastUpdatedAt)->lt($threshold);
+
+        if (!$isStale) {
+            return null;
+        }
+
+        return $this->dispatcher->dispatch([
+            'strategy'       => 'single_school',
+            'district'       => $params['district'] ?? $school->district,
+            'city'           => $params['city'] ?? $school->city,
+            'school'         => $params['school'],
+            'year'           => $params['year'],
+            'teaching_cycle' => $params['teaching_cycle'] ?? null,
+            'course'         => $params['course'] ?? null,
+        ]);
+    }
+
 
     private function perPage(array $params): int
     {
