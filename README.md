@@ -1,59 +1,149 @@
-<p align="center"><a href="https://laravel.com" target="_blank"><img src="https://raw.githubusercontent.com/laravel/art/master/logo-lockup/5%20SVG/2%20CMYK/1%20Full%20Color/laravel-logolockup-cmyk-red.svg" width="400" alt="Laravel Logo"></a></p>
+# Sistema de Web Scraping de Livros
 
-<p align="center">
-<a href="https://github.com/laravel/framework/actions"><img src="https://github.com/laravel/framework/workflows/tests/badge.svg" alt="Build Status"></a>
-<a href="https://packagist.org/packages/laravel/framework"><img src="https://img.shields.io/packagist/dt/laravel/framework" alt="Total Downloads"></a>
-<a href="https://packagist.org/packages/laravel/framework"><img src="https://img.shields.io/packagist/v/laravel/framework" alt="Latest Stable Version"></a>
-<a href="https://packagist.org/packages/laravel/framework"><img src="https://img.shields.io/packagist/l/laravel/framework" alt="License"></a>
-</p>
+Este projeto implementa uma arquitetura distribuída para um sistema de pesquisa e extração de informações sobre livros. A solução está dividida em microsserviços para garantir escalabilidade, processamento assíncrono de tarefas pesadas e uma clara separação de responsabilidades.
 
-## About Laravel
+---
 
-Laravel is a web application framework with expressive, elegant syntax. We believe development must be an enjoyable and creative experience to be truly fulfilling. Laravel takes the pain out of development by easing common tasks used in many web projects, such as:
+## Estrutura do Repositório
 
-- [Simple, fast routing engine](https://laravel.com/docs/routing).
-- [Powerful dependency injection container](https://laravel.com/docs/container).
-- Multiple back-ends for [session](https://laravel.com/docs/session) and [cache](https://laravel.com/docs/cache) storage.
-- Expressive, intuitive [database ORM](https://laravel.com/docs/eloquent).
-- Database agnostic [schema migrations](https://laravel.com/docs/migrations).
-- [Robust background job processing](https://laravel.com/docs/queues).
-- [Real-time event broadcasting](https://laravel.com/docs/broadcasting).
+```text
+.
+├── backend-laravel/     # API Central e orquestrador em Laravel
+├── frontend-vue/        # Interface de utilizador em Vue.js
+└── scraping-service/    # Microsserviço de scraping em Node.js
+```
 
-Laravel is accessible, powerful, and provides tools required for large, robust applications.
+---
 
-## Learning Laravel
+## Requisitos do Sistema
 
-Laravel has the most extensive and thorough [documentation](https://laravel.com/docs) and video tutorial library of all modern web application frameworks, making it a breeze to get started with the framework. You can also check out [Laravel Learn](https://laravel.com/learn), where you will be guided through building a modern Laravel application.
+Para executar este projeto, certifique-se de que possui os seguintes softwares instalados no seu ambiente de desenvolvimento:
 
-If you don't feel like reading, [Laracasts](https://laracasts.com) can help. Laracasts contains thousands of video tutorials on a range of topics including Laravel, modern PHP, unit testing, and JavaScript. Boost your skills by digging into our comprehensive video library.
+*   **Docker** e **Docker Compose** (recomendado para a execução dos serviços e bases de dados)
+*   **PHP** >= 8.2 (caso execute o Laravel fora de contentor)
+*   **Composer** (gestor de dependências do PHP)
+*   **Node.js** >= 18.x e **npm** / **yarn** (para o frontend e o microsserviço Node.js)
+*   **Redis** (servidor de filas, caso não utilize o Docker Compose)
 
-## Laravel Sponsors
+---
 
-We would like to extend our thanks to the following sponsors for funding Laravel development. If you are interested in becoming a sponsor, please visit the [Laravel Partners program](https://partners.laravel.com).
+## Variáveis de Ambiente
 
-### Premium Partners
+Crie e configure os ficheiros `.env` em cada microsserviço conforme as necessidades do seu ambiente. Abaixo encontram-se as principais variáveis de configuração utilizadas (com foco no microsserviço de scraping):
 
-- **[Vehikl](https://vehikl.com)**
-- **[Tighten Co.](https://tighten.co)**
-- **[Kirschbaum Development Group](https://kirschbaumdevelopment.com)**
-- **[64 Robots](https://64robots.com)**
-- **[Curotec](https://www.curotec.com/services/technologies/laravel)**
-- **[DevSquad](https://devsquad.com/hire-laravel-developers)**
-- **[Redberry](https://redberry.international/laravel-development)**
-- **[Active Logic](https://activelogic.com)**
+```env
+# --- Redis / BullMQ ------------------------------------------------------------
+REDIS_HOST=localhost
+REDIS_PORT=6379
 
-## Contributing
+# --- Servidor Express (rota /scrape) --------------------------------------------
+PORT=3000
 
-Thank you for considering contributing to the Laravel framework! The contribution guide can be found in the [Laravel documentation](https://laravel.com/docs/contributions).
+SCRAPE_CONCURRENCY=3
+SCRAPER_ENGINE=camoufox
+# SCRAPER_HEADLESS=true
 
-## Code of Conduct
+LARAVEL_API_URL=http://localhost:8000/api
+```
 
-In order to ensure that the Laravel community is welcoming to all, please review and abide by the [Code of Conduct](https://laravel.com/docs/contributions#code-of-conduct).
+---
 
-## Security Vulnerabilities
+## Arquitetura do Sistema
 
-If you discover a security vulnerability within Laravel, please send an e-mail to Taylor Otwell via [taylor@laravel.com](mailto:taylor@laravel.com). All security vulnerabilities will be promptly addressed.
+O sistema é composto pelas seguintes tecnologias e serviços principais:
 
-## License
+*   **Frontend (Vue.js):** Interface de utilizador responsável por iniciar pedidos de scraping, consultar estados e apresentar os resultados das pesquisas de livros.
+*   **Backend / API Principal (Laravel):** Atua como orquestrador central. Recebe os pedidos do frontend, gere a segurança, e comunica com o serviço de scraping.
+*   **Worker de Scraping (Node.js):** Um microsserviço dedicado à execução assíncrona das tarefas de extração de dados.
+*   **Mensageria e Filas (Redis + BullMQ):** Sistema escolhido para a gestão de jobs em background, devido à sua baixa latência e gestão nativa do estado das tarefas.
 
-The Laravel framework is open-sourced software licensed under the [MIT license](https://opensource.org/licenses/MIT).
+---
+
+## Segurança e Fluxo de Comunicação
+
+O sistema implementa fronteiras estritas de segurança entre os seus componentes:
+
+| Origem | Destino | Finalidade | Mecanismo de Proteção |
+| :--- | :--- | :--- | :--- |
+| **Vue.js** | **Laravel** | Iniciar scraping, consultar estado e pesquisar livros. | API key, validação de origem (CORS) e rate limiting. |
+| **Laravel** | **Node.js** | Enviar tarefas de scraping para a fila de processamento. | Comunicação interna de rede (isolada). |
+| **Node.js** | **Laravel** | Enviar resultados (callbacks) e atualizar estados dos jobs. | Token partilhado validado pelo middleware `VerifyNodeApiKey`. |
+
+---
+
+## API de Scraping (Microsserviço Node.js)
+
+O serviço Node.js expõe os seguintes endpoints internos para a gestão da fila de trabalhos (acessíveis apenas pelo Laravel):
+
+### POST /scrape
+Inicia um novo trabalho de scraping e coloca-o na fila BullMQ.
+*   **Payload:** Requer `strategy`, `callback_url` e `run_token`.
+*   **Respostas:**
+    *   `202 Accepted`: Sucesso. Retorna o ID do job e o total de tarefas criadas.
+    *   `400 Bad Request`: Erros de validação nos parâmetros enviados.
+
+### GET /scrape/:id
+Consulta o estado em tempo real de um trabalho de scraping.
+*   **Respostas:**
+    *   `200 OK`: Retorna o estado atual e a percentagem de progresso do job.
+    *   `404 Not Found`: Caso o ID do job não exista na fila Redis.
+
+---
+
+## Decisões de Arquitetura: Fila de Processamento
+
+Para o processamento assíncrono das tarefas de scraping, optou-se pela stack **Redis + BullMQ** em vez do tradicional RabbitMQ (AMQP). Os principais motivos incluem:
+
+*   **Latência e Desempenho:** Acesso direto à memória com latência reduzida.
+*   **Gestão de Estado:** Visibilidade nativa e simplificada do progresso do job, ideal para reportar o estado de volta ao Laravel e Vue.js.
+*   **Complexidade Operacional:** Implementação mais limpa e de baixo consumo de recursos através de contentores Docker.
+
+---
+
+## Como Executar o Projeto
+
+1. Clone este repositório:
+   ```bash
+   git clone https://github.com/seu-utilizador/seu-repositorio.git
+   ```
+2. Suba os serviços utilizando o Docker Compose:
+   ```bash
+   docker-compose up -d
+   ```
+3. Configure as variáveis de ambiente (`.env`) nos diretórios do Laravel e do Node.js, certificando-se de partilhar o token de segurança entre eles.
+4. Execute as migrações do Laravel:
+   ```bash
+   php artisan migrate
+   ```
+
+---
+
+## Testes
+
+Para garantir a integridade do código e o correto funcionamento dos microsserviços, pode executar a bateria de testes disponível em cada módulo:
+
+*   **Backend (Laravel):**
+    ```bash
+    php artisan test
+    ```
+*   **Microsserviço de Scraping (Node.js):**
+    ```bash
+    npm test
+    ```
+
+---
+
+## Contribuição
+
+Contribuições são sempre bem-vindas! Se encontrar algum *bug* ou tiver sugestões de melhoria:
+1. Faça um *fork* do repositório.
+2. Crie uma branch para a sua funcionalidade (`git checkout -b feature/nova-funcionalidade`).
+3. Faça o *commit* das suas alterações (`git commit -m 'Adiciona nova funcionalidade'`).
+4. Envie para a branch (`git push origin feature/nova-funcionalidade`).
+5. Abra um *Pull Request*.
+
+---
+
+## Direitos de Autor e Licença
+
+Este projeto está licenciado sob a **MIT License**. Consulte o ficheiro [LICENSE](LICENSE) para mais detalhes.
