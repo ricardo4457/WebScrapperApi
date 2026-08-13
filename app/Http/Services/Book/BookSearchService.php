@@ -13,33 +13,36 @@ class BookSearchService
 {
     private const DEFAULT_PER_PAGE = 15;
 
-    /**
-     * Os dados de manuais estão presos a um ano letivo. Passado este
-     * número de meses sem atualização, o registo em cache é tratado como
-     * desatualizado (o ano letivo seguinte já deve ter uma lista nova no
-     * Wook) e dispara-se um rescrape em segundo plano.
-     */
+    // Cached data is considered stale after one academic year.
     private const STALE_AFTER_MONTHS = 12;
 
     public function __construct(
         private ScrapeDispatchService $dispatcher,
     ) {}
 
+    // Selects the search mode based on the provided parameters.
     public function search(array $params): array
     {
-        if (!empty($params['school'])) {
+        if (!empty($params['school']) || !empty($params['school_id'])) {
             return $this->searchBySchool($params);
         }
 
         return $this->searchByTitle($params);
     }
 
+    // Searches for books associated with a specific school.
 
     private function searchBySchool(array $params): array
     {
-        $school = School::where('name', $params['school'])->first();
+        // Prefer the school ID to avoid name matching issues.
+        $school = !empty($params['school_id'])
+            ? School::find($params['school_id'])
+            : School::where('name', $params['school'] ?? null)->first();
 
-        //  Caso exista escola → tenta livros
+        // The scraper uses the school name to navigate the source website.
+        $schoolName = $params['school'] ?? $school?->name;
+
+        // Search cached books before starting a new scrape.
         if ($school) {
             $query = $school->books()
                 ->wherePivot('year', $params['year']);
@@ -60,11 +63,9 @@ class BookSearchService
                 ->orderBy('price')
                 ->paginate($this->perPage($params));
 
+            // Return cached results immediately and refresh stale data in background.
             if ($books->total() > 0) {
-                // Fail-safe: cached data may belong to a past academic year.
-                // Serve cache immediately (no blocking), but if it's too old,
-                // trigger a background re-scrape to fetch updated data.
-                $refresh = $this->refreshIfStale($school, $params);
+                $refresh = $this->refreshIfStale($school, $schoolName, $params);
 
                 return [
                     'mode'   => 'school',
@@ -78,7 +79,7 @@ class BookSearchService
             }
         }
 
-
+        // Use the provided location or the school's stored location.
         $district = $params['district'] ?? $school?->district;
         $city = $params['city'] ?? $school?->city;
 
@@ -94,7 +95,7 @@ class BookSearchService
             ];
         }
 
-        //  1. Se a escola NÃO existe → faz full_city primeiro
+        // If the school is unknown, scrape the entire city to discover it.
         if (!$school) {
             $cityScrape = $this->dispatcher->dispatch([
                 'strategy' => 'full_city',
@@ -116,12 +117,12 @@ class BookSearchService
             ];
         }
 
-        //  2. Escola existe mas sem livros → faz single_school
+        // If the school exists but has no cached books, scrape only that school.
         $scrape = $this->dispatcher->dispatch([
             'strategy' => 'single_school',
             'district' => $district,
             'city'     => $city,
-            'school'   => $params['school'],
+            'school'   => $schoolName,
             'year'     => $params['year'],
             'teaching_cycle' => $params['teaching_cycle'] ?? null,
             'course'   => $params['course'] ?? null,
@@ -139,7 +140,7 @@ class BookSearchService
     }
 
 
-
+    // Searches cached books by title.
     private function searchByTitle(array $params): array
     {
         $books = Book::query()
@@ -159,15 +160,8 @@ class BookSearchService
         ];
     }
 
-    /**
-     * Checks if cached books are outdated for this scope.
-     * If so, triggers a background re-scrape.
-     *
-     * Safe to call on every request .
-     *
-     * Returns null if data is fresh, or dispatch result if refreshed.
-     */
-    private function refreshIfStale(School $school, array $params): ?array
+    // Checks whether cached books need to be refreshed.
+    private function refreshIfStale(School $school, ?string $schoolName, array $params): ?array
     {
         $lastUpdatedAt = SchoolBook::query()
             ->where('school_id', $school->id)
@@ -176,6 +170,7 @@ class BookSearchService
             ->when(!empty($params['course']), fn($q) => $q->where('course', $params['course']))
             ->max('updated_at');
 
+        // Compare the last update with the configured stale threshold.
         $threshold = now()->subMonths(self::STALE_AFTER_MONTHS);
 
         $isStale = !$lastUpdatedAt || Carbon::parse($lastUpdatedAt)->lt($threshold);
@@ -183,19 +178,20 @@ class BookSearchService
         if (!$isStale) {
             return null;
         }
+        // Refresh only the selected school when its data is outdated.
 
         return $this->dispatcher->dispatch([
             'strategy'       => 'single_school',
             'district'       => $params['district'] ?? $school->district,
             'city'           => $params['city'] ?? $school->city,
-            'school'         => $params['school'],
+            'school'         => $schoolName ?? $school->name,
             'year'           => $params['year'],
             'teaching_cycle' => $params['teaching_cycle'] ?? null,
             'course'         => $params['course'] ?? null,
         ]);
     }
 
-
+    // Returns the requested page size or the default value.
     private function perPage(array $params): int
     {
         return (int) ($params['per_page'] ?? self::DEFAULT_PER_PAGE);

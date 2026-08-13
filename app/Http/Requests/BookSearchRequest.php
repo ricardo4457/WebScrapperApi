@@ -15,13 +15,10 @@ class BookSearchRequest extends FormRequest
     /**
      * Two search modes, mutually exclusive by which field is filled:
      *
-     * - `school` filled: exact school lookup. Only `school` + `year` are
-     *   required — `district`/`city` are optional overrides; when
-     *   omitted, BookSearchService resolves them from the school's own
-     *   record so a live scrape can still be dispatched on a miss
-     *   without asking the person for the school's location.
-     * - `q` filled (no `school`): direct book title search across every
-     *   scraped book. DB-only, never triggers a scrape.
+     * - `school` / `school_id`: searches within a specific school and may
+     *   trigger a scrape when data is missing or outdated. `school_id` is
+     *   preferred to avoid name-matching issues.
+     * - `q`: searches book titles across all cached books and never scrapes.
      *
      * Search-by-city on its own (no school) was dropped — `city` still
      * exists only as an optional override alongside `school`.
@@ -38,6 +35,7 @@ class BookSearchRequest extends FormRequest
             'district'       => ['nullable', 'string'],
             'city'           => ['nullable', 'string'],
             'school'         => ['nullable', 'string'],
+            'school_id'      => ['nullable', 'integer', 'exists:schools,id'],
             'year'           => ['nullable', 'string'],
             'teaching_cycle' => ['nullable', 'string'],
             'course'         => ['nullable', 'string'],
@@ -50,11 +48,11 @@ class BookSearchRequest extends FormRequest
     public function withValidator(ValidatorContract $validator): void
     {
         $validator->after(function (ValidatorContract $validator) {
-            if (!$this->filled('q') && !$this->filled('school')) {
-                $validator->errors()->add('q', 'Indica um termo de pesquisa (q) ou uma escola (school).');
+            if (!$this->filled('q') && !$this->filled('school') && !$this->filled('school_id')) {
+                $validator->errors()->add('q', 'Indica um termo de pesquisa (q) ou uma escola (school/school_id).');
             }
 
-            if ($this->filled('school') && !$this->filled('year')) {
+            if (($this->filled('school') || $this->filled('school_id')) && !$this->filled('year')) {
                 $validator->errors()->add('year', 'Pesquisa por escola exige também year.');
             }
         });

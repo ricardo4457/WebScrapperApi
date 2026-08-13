@@ -9,9 +9,7 @@ use Illuminate\Support\Str;
 use Throwable;
 
 /**
- * Extracted from ScrapeController::dispatchRun() so the same "create run,
- * call Node, register jobs, start run" flow can be reused by BookSearchService
- * (automatic fallback when a search misses the DB) without duplicating it.
+ * Creates and starts a scrape run through the Node scraper.
  */
 class ScrapeDispatchService
 {
@@ -20,16 +18,6 @@ class ScrapeDispatchService
         private ScrapeJobService $jobs,
     ) {}
 
-    /**
-     * @return array{
-     *   ok: bool,
-     *   status: int,
-     *   run: ScrapeRun,
-     *   jobs_total: int,
-     *   error: ?string,
-     *   body: ?array
-     * }
-     */
     public function dispatch(array $validated): array
     {
         $existing = $this->findRunningDuplicate($validated);
@@ -116,28 +104,42 @@ class ScrapeDispatchService
         }
     }
 
-    /**
-     * Reuses an existing pending/running scrape with the same scope
-     * (district/city/school/year/teaching_cycle/course) instead of
-     * starting a duplicate one.
-     */
 
+    /**
+     * Defines the fields used to identify duplicate scrape requests.
+     */
+    private const SCOPE_KEYS = ['strategy', 'district', 'city', 'school', 'year', 'teaching_cycle', 'course'];
+
+    /**
+     * Finds an existing pending or running scrape with the same scope.
+     */
     private function findRunningDuplicate(array $validated): ?ScrapeRun
     {
-        $query = ScrapeRun::query()
-            ->whereIn('status', ['pending', 'running']);
+        $scope = $this->normalizeScope($validated);
 
-        // strategy is stored inside the params JSON column.
-        if (array_key_exists('strategy', $validated)) {
-            $query->whereJsonContains('params->strategy', $validated['strategy']);
+        $query = ScrapeRun::query()->whereIn('status', ['pending', 'running']);
+
+        // Narrow the candidates before performing the full scope comparison.
+        if (!empty($scope['strategy'])) {
+            $query->whereJsonContains('params->strategy', $scope['strategy']);
         }
 
-        foreach (['district', 'city', 'school', 'year', 'teaching_cycle', 'course'] as $key) {
-            if (array_key_exists($key, $validated)) {
-                $query->whereJsonContains('params->' . $key, $validated[$key]);
-            }
+        return $query->latest('id')
+            ->get()
+            ->first(fn(ScrapeRun $run) => $this->normalizeScope($run->params ?? []) === $scope);
+    }
+
+    /**
+     * Normalizes the scope so missing and null values are treated equally.
+     */
+    private function normalizeScope(array $params): array
+    {
+        $scope = [];
+
+        foreach (self::SCOPE_KEYS as $key) {
+            $scope[$key] = $params[$key] ?? null;
         }
 
-        return $query->latest('id')->first();
+        return $scope;
     }
 }
