@@ -29,7 +29,7 @@ class BookController extends Controller
     public function show(Book $book): JsonResponse
     {
         return response()->json([
-            'book' => $book->only(['id', 'title', 'publisher', 'discipline', 'price', 'cover_path', 'authors','type']),
+            'book' => $book->only(['id', 'title', 'publisher', 'discipline', 'price', 'cover_path', 'authors', 'type']),
             'schools' => $book->schoolBooks->map(fn($sb) => [
                 'school_id' => $sb->school->id,
                 'name'      => $sb->school->name,
@@ -139,8 +139,8 @@ class BookController extends Controller
         $teachingCycle = $request->input('teaching_cycle');
 
         $schools = School::query()
-            ->when($district, fn($q) => $q->where('district', $district))
-            ->when($city, fn($q) => $q->where('city', $city))
+            ->when($district, fn($q) => $q->whereRaw('LOWER(TRIM(district)) = ?', [mb_strtolower(trim($district))]))
+            ->when($city, fn($q) => $q->whereRaw('LOWER(TRIM(city)) = ?', [mb_strtolower(trim($city))]))
             ->when(
                 $year || $teachingCycle,
                 fn($q) => $q->whereHas('schoolBooks', function ($sq) use ($year, $teachingCycle) {
