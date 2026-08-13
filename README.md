@@ -131,18 +131,6 @@ Para garantir a integridade do código e o correto funcionamento dos microsservi
     npm test
     ```
 
----
-
-## Contribuição
-
-Contribuições são sempre bem-vindas! Se encontrar algum *bug* ou tiver sugestões de melhoria:
-1. Faça um *fork* do repositório.
-2. Crie uma branch para a sua funcionalidade (`git checkout -b feature/nova-funcionalidade`).
-3. Faça o *commit* das suas alterações (`git commit -m 'Adiciona nova funcionalidade'`).
-4. Envie para a branch (`git push origin feature/nova-funcionalidade`).
-5. Abra um *Pull Request*.
-
----
 
 ## Direitos de Autor e Licença
 
