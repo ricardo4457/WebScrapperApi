@@ -26,10 +26,8 @@ if (! function_exists('scrapeHeaders')) {
     }
 }
 
-// Também usadas em Feature/ScrapeCallbackIntegrationTest.php. Guardadas com
-// function_exists porque lá estão declaradas sem guarda — isto evita um
-// "Cannot redeclare function" quando a suite completa corre, e garante que
-// este ficheiro também funciona isolado (--filter=ScrapeControllerTest).
+// Shared helpers. Guarded to prevent redeclaration when running the full test suite
+// or this test file independently.
 if (! function_exists('createActiveRun')) {
     function createActiveRun(array $overrides = []): ScrapeRun
     {
