@@ -1,5 +1,7 @@
 <?php
 use Tests\TestCase;
+use App\Models\ScrapeRun;
+use App\Models\ScrapeRunJob;
 use Illuminate\Support\Facades\Config;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Foundation\Testing\RefreshDatabase;
@@ -21,6 +23,35 @@ if (! function_exists('scrapeHeaders')) {
             'X-App-Key' => 'chave-secreta',
             'Origin'    => 'http://localhost:5173',
         ];
+    }
+}
+
+// Também usadas em Feature/ScrapeCallbackIntegrationTest.php. Guardadas com
+// function_exists porque lá estão declaradas sem guarda — isto evita um
+// "Cannot redeclare function" quando a suite completa corre, e garante que
+// este ficheiro também funciona isolado (--filter=ScrapeControllerTest).
+if (! function_exists('createActiveRun')) {
+    function createActiveRun(array $overrides = []): ScrapeRun
+    {
+        return ScrapeRun::create(array_merge([
+            'token'       => 'run-token-teste',
+            'status'      => 'running',
+            'jobs_total'  => 1,
+            'jobs_done'   => 0,
+            'jobs_failed' => 0,
+            'params'      => [],
+        ], $overrides));
+    }
+}
+
+if (! function_exists('createJob')) {
+    function createJob(ScrapeRun $run, array $overrides = []): ScrapeRunJob
+    {
+        return $run->jobs()->create(array_merge([
+            'job_token'         => 'job-token-teste',
+            'status'            => 'pending',
+            'last_attempt_seen' => 0,
+        ], $overrides));
     }
 }
 
