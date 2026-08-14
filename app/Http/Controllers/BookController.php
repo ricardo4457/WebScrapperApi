@@ -63,7 +63,7 @@ class BookController extends Controller
         $result = $this->search->search($request->validated());
 
         if ($result['mode'] === 'school' && !$result['found']) {
-            if ($result['error']) {
+            if ($result['error'] && !$result['scrape']) {
                 return response()->json([
                     'status'  => 'error',
                     'message' => $result['error'],
