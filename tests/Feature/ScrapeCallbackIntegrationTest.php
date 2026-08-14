@@ -14,25 +14,29 @@ use App\Models\ScrapeRunJob;
  * previous retry attempts.
  */
 
-function createActiveRun(array $overrides = []): ScrapeRun
-{
-    return ScrapeRun::create(array_merge([
-        'token'      => 'run-token-teste',
-        'status'     => 'running',
-        'jobs_total' => 1,
-        'jobs_done'  => 0,
-        'jobs_failed' => 0,
-        'params'     => [],
-    ], $overrides));
+if (! function_exists('createActiveRun')) {
+    function createActiveRun(array $overrides = []): ScrapeRun
+    {
+        return ScrapeRun::create(array_merge([
+            'token'      => 'run-token-teste',
+            'status'     => 'running',
+            'jobs_total' => 1,
+            'jobs_done'  => 0,
+            'jobs_failed' => 0,
+            'params'     => [],
+        ], $overrides));
+    }
 }
 
-function createJob(ScrapeRun $run, array $overrides = []): ScrapeRunJob
-{
-    return $run->jobs()->create(array_merge([
-        'job_token'         => 'job-token-teste',
-        'status'            => 'pending',
-        'last_attempt_seen' => 0,
-    ], $overrides));
+if (! function_exists('createJob')) {
+    function createJob(ScrapeRun $run, array $overrides = []): ScrapeRunJob
+    {
+        return $run->jobs()->create(array_merge([
+            'job_token'         => 'job-token-teste',
+            'status'            => 'pending',
+            'last_attempt_seen' => 0,
+        ], $overrides));
+    }
 }
 
 function bookBatch(string $title = 'Manual de Teste'): array
