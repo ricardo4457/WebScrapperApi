@@ -135,14 +135,18 @@ test('books/search por escola desconhecida sem district/city devolve 422', funct
     Http::assertNothingSent();
 });
 
-test('books/search por concelho encontra livros já em cache', function () {
+test('books/search apenas com city (sem q nem school) devolve 422', function () {
+    // Pesquisa por concelho sozinho foi removida — city é hoje só um
+    // override opcional junto de school (ver BookSearchRequest).
     makeSchoolWithBook();
+
+    Http::fake();
 
     $response = $this->getJson('/api/books/search?city=Ermesinde&year=9º+Ano', protectedHeaders());
 
-    $response->assertStatus(200);
-    $response->assertJsonPath('status', 'found');
-    $response->assertJsonPath('mode', 'city');
+    $response->assertStatus(422);
+    $response->assertJsonValidationErrors('q');
+    Http::assertNothingSent();
 });
 
 // --- Price history -------------------------------------------------------
@@ -185,11 +189,12 @@ test('schools filtra por district, city e search', function () {
     School::create(['district' => 'Porto', 'city' => 'Valongo', 'name' => 'Escola B']);
     School::create(['district' => 'Lisboa', 'city' => 'Lisboa', 'name' => 'Escola C']);
 
-    $response = $this->getJson('/api/schools?district=Porto&search=Escola+A');
+    $response = $this->getJson('/api/schools?district=Porto&search=Escola+A', protectedHeaders());
 
     $response->assertStatus(200);
+    $response->assertJsonPath('status', 'found');
 
-    $names = collect($response->json())->pluck('name');
+    $names = collect($response->json('schools'))->pluck('name');
 
     expect($names)->toEqual(collect(['Escola A']));
 });
@@ -220,33 +225,36 @@ test('locations com district devolve as cidades desse distrito', function () {
     expect($response->json('cities'))->toEqual(['Ermesinde', 'Valongo']);
 });
 
-// --- Disciplines ---------------------------------------------------------
+// --- School Disciplines --------------------------------------------------
+// No global /api/disciplines endpoint; disciplines are scoped to a school.
 
-test('disciplines devolve as disciplinas distintas, ignorando nulos', function () {
-    Book::create([
-        'title'      => 'Livro A',
-        'price'      => 10,
-        'type'       => 'manual',
-        'discipline' => 'Matemática',
-    ]);
+test('schools/{school}/disciplines devolve as disciplinas distintas da escola, ignorando nulos', function () {
+    [$school] = makeSchoolWithBook();
 
-    Book::create([
-        'title'      => 'Livro B',
-        'price'      => 10,
+    $bookPt = Book::create([
+        'title'      => 'Português 9',
+        'publisher'  => 'Editora Y',
+        'price'      => 12.0,
         'type'       => 'manual',
         'discipline' => 'Português',
     ]);
-
-    Book::create([
-        'title'      => 'Livro C',
-        'price'      => 10,
-        'type'       => 'manual',
-        'discipline' => null,
+    $school->books()->attach($bookPt->id, [
+        'year'           => '9º Ano',
+        'teaching_cycle' => '3º Ciclo',
     ]);
 
-    $response = $this->getJson('/api/disciplines');
+    $bookSemDisciplina = Book::create([
+        'title'     => 'Livro Sem Disciplina',
+        'price'     => 10.0,
+        'type'      => 'manual',
+    ]);
+    $school->books()->attach($bookSemDisciplina->id, [
+        'year'           => '9º Ano',
+        'teaching_cycle' => '3º Ciclo',
+    ]);
+
+    $response = $this->getJson("/api/schools/{$school->id}/disciplines", protectedHeaders());
 
     $response->assertStatus(200);
-
     expect($response->json('disciplines'))->toEqual(['Matemática', 'Português']);
 });
