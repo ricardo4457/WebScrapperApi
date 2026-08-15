@@ -194,6 +194,8 @@ class BookSearchService
     // Returns the requested page size or the default value.
     private function perPage(array $params): int
     {
-        return (int) ($params['per_page'] ?? self::DEFAULT_PER_PAGE);
+        $perPage = (int) ($params['per_page'] ?? self::DEFAULT_PER_PAGE);
+
+        return max(5, min($perPage, 50));
     }
 }
